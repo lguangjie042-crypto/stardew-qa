@@ -1,19 +1,37 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 DB_PATH = DATA_DIR / "app.db"
+_DB_FILE: Path | None = None
+
+
+def db_file() -> Path:
+    global _DB_FILE
+    if _DB_FILE is not None:
+        return _DB_FILE
+    if os.environ.get("VERCEL"):
+        folder = Path("/tmp/stardew-qa")
+        folder.mkdir(parents=True, exist_ok=True)
+        _DB_FILE = folder / "app.db"
+        return _DB_FILE
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _DB_FILE = DB_PATH
+    return _DB_FILE
 
 
 def connect() -> sqlite3.Connection:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(db_file())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.OperationalError:
+        pass
     return conn
 
 

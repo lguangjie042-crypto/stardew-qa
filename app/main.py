@@ -149,6 +149,8 @@ def startup() -> None:
         except Exception:
             pass
 
+    if os.environ.get("VERCEL"):
+        return
     import threading
 
     threading.Thread(target=_warm, daemon=True).start()
