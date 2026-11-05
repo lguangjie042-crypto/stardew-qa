@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+data/app.db
+data/app.db-journal
+data/chroma/
+data/chroma.stamp
+data/parent_store/
+.idea/
+.vscode/
+tools/

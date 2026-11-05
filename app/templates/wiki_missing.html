@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}还没有这一页 · Wiki{% endblock %}
+{% block content %}
+<article class="card">
+  <p class="crumb"><a href="/wiki">维基</a> / Wiki</p>
+  <h1>本地还没有「{{ title }}」</h1>
+  <p>这一条没有同步到站内，官方中文 Wiki 现在也打不开，所以不再跳过去。</p>
+  <p><a href="/wiki">回维基</a></p>
+</article>
+{% endblock %}

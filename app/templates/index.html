@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}维基 · 星露谷问答社{% endblock %}
+{% block content %}
+<section class="hero" id="ask">
+  <div class="ask-head">
+    <h1>存在疑问？问小谷！</h1>
+    <span id="ask-status" class="ask-status" aria-live="polite"></span>
+  </div>
+  <form id="ask-form" class="stack" action="/wiki" method="post">
+    <label>你的问题：
+      <textarea id="question" name="question" rows="3" required placeholder="例如：有多少种水果？阿比盖尔喜欢什么礼物？"></textarea>
+    </label>
+    <div class="ask-samples">
+      <span class="ask-samples-label">试试问：</span>
+      <button type="button" class="ask-chip" data-question="阿比盖尔喜欢什么礼物">阿比盖尔喜欢什么礼物</button>
+      <button type="button" class="ask-chip" data-question="春季可以种什么作物">春季可以种什么作物</button>
+      <button type="button" class="ask-chip" data-question="温室怎么解锁">温室怎么解锁</button>
+      <button type="button" class="ask-chip" data-question="有多少种鱼">有多少种鱼</button>
+    </div>
+    <div class="ask-actions">
+      <button class="btn gold" type="submit">开始整理回答</button>
+      <button class="btn" type="button" id="ask-cancel" disabled>取消</button>
+    </div>
+  </form>
+  <div id="result" class="result">
+    <p class="ask-hint">在上方输入问题，小谷会根据已同步的 Wiki 资料整理回答。</p>
+  </div>
+</section>
+
+<section class="card">
+  {% if sync_error %}<p class="error">{{ sync_error }}</p>{% endif %}
+  <div class="row">
+    <h2>Wiki 资料</h2>
+    {% if is_admin %}
+    <form action="/wiki/sync" method="post">
+      <button class="btn" type="submit">同步官方 Wiki</button>
+    </form>
+    {% endif %}
+  </div>
+  <form class="search" action="/wiki" method="get">
+    <input name="q" value="{{ q }}" placeholder="搜索作物、村民、地点…">
+    <button class="btn gold" type="submit">搜索</button>
+  </form>
+  <div class="chips">
+    <a class="chip {% if not cat %}on{% endif %}" href="/wiki">全部</a>
+    {% for name in categories %}
+    <a class="chip {% if cat == name %}on{% endif %}" href="/wiki?cat={{ name }}">{{ name }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+{% macro wiki_item(title, label, icon) %}
+<li><a class="wiki-link" href="/wiki/go/{{ title | urlencode }}"><img src="/static/wiki-icons/{{ icon | urlencode }}" alt=""><span>{{ label }}</span></a></li>
+{% endmacro %}
+{% if q %}
+<section class="card">
+  <h2>搜索结果</h2>
+  <ul class="list">
+    {% for page in pages %}
+    <li>
+      <a href="/wiki/{{ page.pageid }}">{{ page.display_title or page.title }}</a>
+      <span class="muted">{{ page.category }}</span>
+    </li>
+    {% else %}
+    <li>没有和这几个字对得上的条目。</li>
+    {% endfor %}
+  </ul>
+  {% if total > page_size %}
+  <p class="pager">
+    {% if p > 1 %}
+    <a href="/wiki?q={{ q | urlencode }}{% if cat %}&cat={{ cat | urlencode }}{% endif %}&p={{ p - 1 }}">上一页</a>
+    {% endif %}
+    <span>第 {{ p }} 页 / 共 {{ ((total + page_size - 1) // page_size) }} 页</span>
+    {% if p * page_size < total %}
+    <a href="/wiki?q={{ q | urlencode }}{% if cat %}&cat={{ cat | urlencode }}{% endif %}&p={{ p + 1 }}">下一页</a>
+    {% endif %}
+  </p>
+  {% endif %}
+</section>
+{% elif cat %}
+<section class="card">
+  <h2>{{ cat }}</h2>
+  {% for section in sections if section.name == cat %}
+    {% if section.columns %}
+    <div class="place-cols">
+      {% for column in section.columns %}
+      <ul class="wiki-links">
+        {% for title, label, icon in column %}
+        {{ wiki_item(title, label, icon) }}
+        {% endfor %}
+      </ul>
+      {% endfor %}
+    </div>
+    {% elif section.wide %}
+    <ul class="wiki-links cols">
+      {% for title, label, icon in section.hubs %}
+      {{ wiki_item(title, label, icon) }}
+      {% endfor %}
+    </ul>
+    {% else %}
+    <ul class="wiki-links">
+      {% for title, label, icon in section.hubs %}
+      {{ wiki_item(title, label, icon) }}
+      {% endfor %}
+    </ul>
+    {% endif %}
+  {% else %}
+  <p>这一类暂时没有条目。</p>
+  {% endfor %}
+</section>
+{% else %}
+<section class="card catalog-card">
+  <div class="row">
+    <h2>官方 Wiki 栏目</h2>
+  </div>
+  <div class="catalog">
+    {% for section in sections if not section.wide and not section.columns %}
+    <div>
+      <h3><a href="/wiki?cat={{ section.name | urlencode }}">{{ section.name }}</a></h3>
+      <ul class="wiki-links">
+        {% for title, label, icon in section.hubs %}
+        {{ wiki_item(title, label, icon) }}
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+  {% for section in sections if section.wide %}
+  <h3 class="catalog-wide"><a href="/wiki?cat={{ section.name | urlencode }}">{{ section.name }}</a></h3>
+  <ul class="wiki-links cols">
+    {% for title, label, icon in section.hubs %}
+    {{ wiki_item(title, label, icon) }}
+    {% endfor %}
+  </ul>
+  {% endfor %}
+  <div class="catalog places">
+    {% for section in sections if section.columns %}
+    <div class="place-block">
+      <h3><a href="/wiki?cat={{ section.name | urlencode }}">{{ section.name }}</a></h3>
+      <div class="place-cols">
+        {% for column in section.columns %}
+        <ul class="wiki-links">
+          {% for title, label, icon in column %}
+          {{ wiki_item(title, label, icon) }}
+          {% endfor %}
+        </ul>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

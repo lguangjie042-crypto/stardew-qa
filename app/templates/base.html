@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}星露谷问答社{% endblock %}</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=swap">
+  <link rel="stylesheet" href="/static/style.css?v=92">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <div class="sky"></div>
+  <header class="top">
+    <img class="wordmark" src="/static/stardew-wordmark.png?v=1" alt="Stardew Valley">
+    <div class="brand">
+      <span class="logo"><img src="/static/pumpkin.png?v=1" alt=""></span>
+      <span>
+        <strong>星露谷问答社</strong>
+        <small>资料来自官方中文维基百科</small>
+      </span>
+    </div>
+    <nav>
+      <a href="/" class="{% if path == '/' %}on{% endif %}">首页</a>
+      <a href="/wiki" class="{% if path.startswith('/wiki') %}on{% endif %}">维基</a>
+      <a href="/forum" class="{% if path.startswith('/forum') %}on{% endif %}">论坛</a>
+      <a href="/chat" class="{% if path.startswith('/chat') %}on{% endif %}">聊天</a>
+      <a href="/me" class="{% if path.startswith('/me') %}on{% endif %}">我的</a>
+    </nav>
+  </header>
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+  {% if notice == "已分享到私聊" %}
+  <p class="toast" id="share-toast">已分享到私聊</p>
+  <script>
+    setTimeout(function () {
+      var el = document.getElementById("share-toast");
+      if (el) el.remove();
+    }, 1500);
+    if (location.search.indexOf("shared=") >= 0) {
+      var url = new URL(location.href);
+      url.searchParams.delete("shared");
+      history.replaceState(null, "", url.pathname + (url.search || "") + url.hash);
+    }
+  </script>
+  {% endif %}
+  {% if ncm_tracks %}
+  <button type="button" id="bgm-btn" class="bgm" aria-pressed="true" aria-label="停止音乐">
+    <span class="bgm-note" aria-hidden="true">♪</span>
+    <span class="bgm-x" aria-hidden="true">×</span>
+  </button>
+  <script id="bgm-tracks" type="application/json">{{ ncm_tracks | tojson }}</script>
+  <script src="/static/bgm.js?v=3"></script>
+  {% endif %}
+  <script src="/static/nav.js?v=14"></script>
+  <script src="/static/ask.js?v=8"></script>
+  <footer class="foot">
+    条目来自 <a href="https://zh.stardewvalleywiki.com/" target="_blank" rel="noreferrer">星露谷物语官方中文 Wiki</a>
+    。本站是学习用社区。当前已同步 {{ wiki_count }} 条。
+    {% if user %}已登录：{{ user.username }} {{ user_handle(user.id) }}{% if is_admin %} · 管理员{% endif %}{% endif %}
+  </footer>
+</body>
+</html>

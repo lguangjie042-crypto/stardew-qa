@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}忘记密码 · 星露谷问答社{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>重置密码</h1>
+  <p class="muted">用注册时填写的安全口令设置新密码。没有设过口令的账号，请先登录后在「我的」里补上。</p>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+  <form method="post" action="/me/forgot" class="stack">
+    <label>用户名 <input name="username" required maxlength="16"></label>
+    <label>安全口令 <input name="recovery" required minlength="4"></label>
+    <label>新密码 <input type="password" name="new_password" required minlength="6"></label>
+    <button class="btn gold" type="submit">重置密码</button>
+  </form>
+  <p><a href="/me">返回登录</a></p>
+</section>
+{% endblock %}

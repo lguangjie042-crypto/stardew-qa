@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}我的 · 星露谷问答社{% endblock %}
+{% block content %}
+{% if user %}
+<section class="card">
+  <div class="profile-line">
+    <h1 class="profile-head">
+      <details class="avatar-dd">
+        <summary class="avatar-btn" title="点击更换头像">{{ avatar_emoji(user.avatar) }}</summary>
+        <form method="post" action="/me/avatar" class="avatar-menu">
+          {% for item in AVATARS %}
+          <button type="submit" name="avatar" value="{{ item.id }}" class="{% if user.avatar == item.id %}on{% endif %}">
+            <span class="pic">{{ item.emoji }}</span>
+            <span class="lab">{{ item.name }}</span>
+          </button>
+          {% endfor %}
+        </form>
+      </details>
+      <span class="who">
+        <span class="who-name">{{ user.username }}</span>
+        <a class="handle" href="/u/{{ user.id }}">{{ user_handle(user.id) }}</a>
+      </span>
+    </h1>
+    <a class="gear" href="/me/settings" title="账号设置"><img src="/static/gear.png?v=2" alt="设置"></a>
+  </div>
+  <div class="profile-actions">
+    {% if is_admin %}<a class="btn" href="/admin">管理账号</a>{% endif %}
+    <form action="/me/logout" method="post"><button class="btn" type="submit">退出</button></form>
+  </div>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+</section>
+<section class="card">
+  <h2>收藏</h2>
+  <ul class="list">
+    {% for p in favorites %}
+    <li><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at }}</span></li>
+    {% else %}
+    <li>还没有收藏。在论坛帖子右边点五角星。</li>
+    {% endfor %}
+  </ul>
+</section>
+<section class="card">
+  <div class="row">
+    <h2>我的帖子</h2>
+    <a class="btn gold" href="/forum/new">去发帖</a>
+  </div>
+  <ul class="list">
+    {% for p in posts %}
+    <li><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at }}</span></li>
+    {% else %}
+    <li>还没有发过帖。</li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<section class="card">
+  <h1>登录或注册</h1>
+  <p class="muted">论坛发帖需要账号。注册时请同时设安全口令，方便找回密码。</p>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <div class="grid two">
+    <form method="post" action="/me/login" class="stack">
+      <h2>登录</h2>
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <label>用户名或序号 <input name="username" required maxlength="16" placeholder="用户名或 @0001"></label>
+      <label>密码 <input type="password" name="password" required></label>
+      <button class="btn gold" type="submit">登录</button>
+      <a class="tiny" href="/me/forgot">忘记密码</a>
+    </form>
+    <form method="post" action="/me/register" class="stack">
+      <h2>注册</h2>
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <label>用户名 <input name="username" required minlength="2" maxlength="16"></label>
+      <label>密码 <input type="password" name="password" required minlength="6"></label>
+      <label>安全口令 <input name="recovery" required minlength="4" placeholder="忘记密码时用"></label>
+      <button class="btn" type="submit">创建账号</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

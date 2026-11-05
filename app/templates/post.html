@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% from "bits.html" import actions with context %}
+{% block title %}{{ post.title }} · 论坛{% endblock %}
+{% block content %}
+{% macro thread_node(c, depth) %}
+<div class="cnode" style="--d: {{ depth }}">
+  <div class="cmt-main">
+    {% if c.user_id %}
+    <a class="avatar-link" href="/u/{{ '%04d'|format(c.user_id) }}" title="打开主页">{{ avatar_emoji(c.avatar) }}</a>
+    {% else %}
+    <span class="avatar">{{ avatar_emoji(c.avatar) }}</span>
+    {% endif %}
+    <div>
+      <strong>{{ c.nickname }}</strong>
+      {% if c.user_id %}<a class="handle" href="/u/{{ '%04d'|format(c.user_id) }}">{{ user_handle(c.user_id) }}</a>{% endif %}
+      <span class="muted">{{ c.created_at | forum_when }}</span>
+      <p>{% if depth > 0 and c.reply_to %}<span class="at">@{{ c.reply_to }}：</span>{% endif %}{{ mentionize(c.body) }}</p>
+      <button type="button" class="text-btn pick-reply" data-parent="{{ c.id }}" data-name="{{ c.nickname }}">回复</button>
+      {% if is_admin %}
+      <form class="inline" method="post" action="/forum/{{ post.id }}/comments/{{ c.id }}/delete" onsubmit="return confirm('删除这条评论？它下面的回复会一起消失。');">
+        <button class="text-btn danger" type="submit">删除</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% for child in c.children %}
+  {{ thread_node(child, depth + 1) }}
+  {% endfor %}
+</div>
+{% endmacro %}
+<article class="card article post-line">
+  <div class="post-main">
+    <p class="crumb"><a href="/forum">论坛</a> / {{ post.title }}</p>
+    <h1>{{ post.title }}</h1>
+    <p class="muted">
+      {% if post.user_id %}
+      <a class="avatar-link" href="/u/{{ '%04d'|format(post.user_id) }}" title="打开主页">{{ avatar_emoji(post.avatar) }}</a>
+      {% else %}
+      <span class="avatar">{{ avatar_emoji(post.avatar) }}</span>
+      {% endif %}
+      {{ post.username }}
+      {% if post.user_id %}<a class="handle" href="/u/{{ '%04d'|format(post.user_id) }}">{{ user_handle(post.user_id) }}</a>{% endif %}
+      · {{ post.created_at | forum_when }}
+    </p>
+    {% if is_admin %}
+    <form method="post" action="/forum/{{ post.id }}/delete" onsubmit="return confirm('删除这篇帖子？评论、点赞和收藏会一起消失。');">
+      <button class="text-btn danger" type="submit">删除帖子</button>
+    </form>
+    {% endif %}
+    <div class="wiki-body">{{ mentionize(post.body) }}</div>
+  </div>
+  {{ actions(post, next_url, peers) }}
+</article>
+<section class="card">
+  <h2>回复</h2>
+  {% for c in roots %}
+  <div class="cmt">
+    <div class="cmt-main">
+      {% if c.user_id %}
+      <a class="avatar-link" href="/u/{{ '%04d'|format(c.user_id) }}" title="打开主页">{{ avatar_emoji(c.avatar) }}</a>
+      {% else %}
+      <span class="avatar">{{ avatar_emoji(c.avatar) }}</span>
+      {% endif %}
+      <div>
+        <strong>{{ c.nickname }}</strong>
+        {% if c.user_id %}<a class="handle" href="/u/{{ '%04d'|format(c.user_id) }}">{{ user_handle(c.user_id) }}</a>{% endif %}
+        <span class="muted">{{ c.created_at | forum_when }}</span>
+        <p>{{ mentionize(c.body) }}</p>
+        <div class="cmt-foot">
+          <button type="button" class="text-btn" data-open="thread-{{ c.id }}" data-parent="{{ c.id }}" data-name="{{ c.nickname }}">回复</button>
+          {% if is_admin %}
+          <form method="post" action="/forum/{{ post.id }}/comments/{{ c.id }}/delete" onsubmit="return confirm('删除这条评论？它下面的回复会一起消失。');">
+            <button class="text-btn danger" type="submit">删除</button>
+          </form>
+          {% endif %}
+          <button type="button" class="text-btn count" data-open="thread-{{ c.id }}" data-parent="{{ c.id }}" data-name="{{ c.nickname }}">{{ c.reply_count }}条回复</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <dialog class="thread" id="thread-{{ c.id }}">
+    <div class="row">
+      <h3>回复</h3>
+      <form method="dialog"><button class="btn" type="submit">关闭</button></form>
+    </div>
+    {{ thread_node(c, 0) }}
+    {% if user %}
+    <form method="post" action="/forum/{{ post.id }}/comments" class="stack reply-form">
+      <p class="replying muted">回复 @{{ c.nickname }}</p>
+      <input type="hidden" name="parent_id" value="{{ c.id }}">
+      <label>内容 <textarea name="body" required rows="3" placeholder="写给楼上的回复"></textarea></label>
+      <button class="btn" type="submit">送出回复</button>
+    </form>
+    {% else %}
+    <p><a class="btn" href="/me?next=/forum/{{ post.id }}">登录后回复</a></p>
+    {% endif %}
+  </dialog>
+  {% else %}
+  <p class="muted">还没有回复。</p>
+  {% endfor %}
+
+  {% if user %}
+  <form method="post" action="/forum/{{ post.id }}/comments" class="stack composer">
+    <p class="muted">直接写就是一条新评论。楼中楼请写成「回复@昵称：内容」，或点某条评论的回复。</p>
+    <label>回复 <textarea name="body" required rows="4" placeholder="说点什么，或者：回复@昵称：内容"></textarea></label>
+    <button class="btn" type="submit">送出回复</button>
+  </form>
+  {% else %}
+  <p><a class="btn" href="/me?next=/forum/{{ post.id }}">登录后回复</a></p>
+  {% endif %}
+</section>
+<script>
+document.querySelectorAll("[data-open]").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var dlg = document.getElementById(btn.dataset.open);
+    if (!dlg) return;
+    var parent = dlg.querySelector("[name=parent_id]");
+    var label = dlg.querySelector(".replying");
+    if (parent && btn.dataset.parent) parent.value = btn.dataset.parent;
+    if (label && btn.dataset.name) label.textContent = "回复 @" + btn.dataset.name;
+    if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+  });
+});
+document.querySelectorAll("dialog.thread").forEach(function (dlg) {
+  dlg.addEventListener("click", function (event) {
+    var btn = event.target.closest(".pick-reply");
+    if (!btn) return;
+    var parent = dlg.querySelector("[name=parent_id]");
+    var label = dlg.querySelector(".replying");
+    if (parent) parent.value = btn.dataset.parent;
+    if (label) label.textContent = "回复 @" + btn.dataset.name;
+    var box = dlg.querySelector("textarea");
+    if (box) box.focus();
+  });
+});
+var openId = new URLSearchParams(location.search).get("thread");
+if (openId) {
+  var opened = document.getElementById("thread-" + openId);
+  if (opened && typeof opened.showModal === "function") opened.showModal();
+}
+</script>
+{% endblock %}

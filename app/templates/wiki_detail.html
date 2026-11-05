@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block extra_head %}
+{% if page.html %}
+<link rel="stylesheet" href="https://zh.stardewvalleywiki.com/mediawiki/load.php?lang=zh-cn&modules=site.styles&only=styles&skin=vector">
+<link rel="stylesheet" href="/static/wiki.css?v=2">
+{% endif %}
+{% endblock %}
+{% block title %}{{ page.display_title or page.title }} · Wiki{% endblock %}
+{% block content %}
+<article class="card article wiki-page">
+  <p class="crumb"><a href="/wiki">维基</a> / {{ page.category or "Wiki" }} / {{ page.display_title or page.title }}</p>
+  <h1>{{ page.display_title or page.title }}</h1>
+  <p class="muted"><a href="{{ page.url }}" target="_blank" rel="noreferrer">打开官方 Wiki 原文</a></p>
+  {% if page.html %}
+  <div class="wiki-article mw-body-content">{{ page.html | safe }}</div>
+  {% else %}
+  <pre class="wiki-body">{{ page.body }}</pre>
+  {% endif %}
+</article>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}聊天 · 星露谷问答社{% endblock %}
+{% block body_class %}{% if peer %}chat-thread{% endif %}{% endblock %}
+{% block content %}
+<section class="card chat-layout">
+  <aside class="chat-list">
+    <h1>聊天</h1>
+    {% for t in threads %}
+    <a class="chat-peer {% if peer and peer.id == t.peer_id %}on{% endif %}" href="/chat/{{ t.peer_id }}">
+      <span class="avatar">{{ avatar_emoji(t.peer_avatar) }}</span>
+      <span>
+        <strong>{{ t.peer_name }}</strong>
+        <small class="muted">{{ t.body }}</small>
+      </span>
+    </a>
+    {% else %}
+    <p class="muted">还没有私聊。去论坛点头像，进主页后再点私聊。</p>
+    {% endfor %}
+  </aside>
+  <div class="chat-pane">
+    {% if peer %}
+    <div class="chat-head">
+      <a class="chat-back" href="/chat" aria-label="返回">&lt;</a>
+      <h2><a class="avatar-link" href="/u/{{ '%04d'|format(peer.id) }}">{{ avatar_emoji(peer.avatar) }}</a> {{ peer.username }}</h2>
+    </div>
+    <div class="chat-log">
+      {% for m in messages %}
+      <div class="bubble {% if m.sender_id == user.id %}mine{% endif %}">
+        <p>{{ m.body }}</p>
+        {% if m.post_id %}
+        <a href="/forum/{{ m.post_id }}">{{ m.post_title or '查看帖子' }}</a>
+        {% endif %}
+        <span class="muted">{{ m.created_at }}</span>
+      </div>
+      {% else %}
+      <p class="muted">打个招呼吧。</p>
+      {% endfor %}
+    </div>
+    <form method="post" action="/chat/{{ peer.id }}" class="stack">
+      <label>消息 <textarea name="body" required rows="3" placeholder="说点什么"></textarea></label>
+      <button class="btn gold" type="submit">发送</button>
+    </form>
+    <script>
+      var log = document.querySelector(".chat-log");
+      if (log) log.scrollTop = log.scrollHeight;
+    </script>
+    {% else %}
+    <p class="muted">选左边的一个人，或者从主页发起私聊。</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

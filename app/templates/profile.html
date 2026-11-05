@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.username }} · 星露谷问答社{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="row">
+    <h1><span class="avatar">{{ avatar_emoji(profile.avatar) }}</span> {{ profile.username }} <span class="handle">{{ user_handle(profile.id) }}</span></h1>
+    {% if user and user.id != profile.id %}
+    <a class="btn gold" href="/chat/{{ profile.id }}">私聊</a>
+    {% elif not user %}
+    <a class="btn gold" href="/me?next=/u/{{ '%04d'|format(profile.id) }}">登录后私聊</a>
+    {% endif %}
+  </div>
+  <p class="muted">这个序号不会随用户名改变。发帖时写 {{ user_handle(profile.id) }} 就能提到 TA。</p>
+</section>
+<section class="card">
+  <h2>帖子</h2>
+  <ul class="list">
+    {% for p in posts %}
+    <li><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at }}</span></li>
+    {% else %}
+    <li>还没有发过帖。</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

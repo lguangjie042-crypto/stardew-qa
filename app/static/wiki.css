@@ -1,0 +1,251 @@
+/* 盖在官方 Vector 样式之后，让 Wiki 正文在手机上可读。 */
+
+.wiki-page {
+  max-width: 100%;
+  overflow-x: visible;
+}
+
+.wiki-article {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.wiki-article .mw-parser-output {
+  max-width: 100%;
+  overflow: visible;
+}
+
+.wiki-article img,
+.wiki-article video,
+.wiki-article canvas,
+.wiki-article svg {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+.wiki-article .thumb,
+.wiki-article .thumbinner,
+.wiki-article .gallerybox,
+.wiki-article .gallerytext {
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+.wiki-article .thumbimage {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+.wiki-article pre,
+.wiki-article .mw-code {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.wiki-article .toc,
+.wiki-article #toc {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* 地点信息框 */
+.wiki-article #infoboxborder {
+  float: right;
+  clear: right;
+  margin: 0 0 12px 12px;
+  max-width: min(100%, 320px);
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.wiki-article #infoboxtable,
+.wiki-article table.location {
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: auto;
+  border-collapse: collapse;
+}
+
+.wiki-article #locationimg img,
+.wiki-article #infoboxtable img {
+  max-width: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  display: block;
+  margin: 0 auto;
+}
+
+.wiki-article .maplayout {
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.wiki-article .mapcontainer {
+  position: relative !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  box-sizing: border-box;
+}
+
+.wiki-article .mapcontainer > img.map-bg,
+.wiki-article .mapcontainer > img[alt="Map.png"] {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+.wiki-article .maplocation {
+  position: absolute !important;
+  z-index: 2;
+  line-height: 0;
+}
+
+.wiki-article .maplocation img {
+  width: 20px !important;
+  height: 20px !important;
+  max-width: none !important;
+}
+
+.wiki-article #infoboxsection,
+.wiki-article #infoboxdetail {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+}
+
+@media (max-width: 720px) {
+  .wiki-page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .wiki-page h1 {
+    font-size: 1.45em;
+    word-break: break-word;
+  }
+
+  .wiki-page .crumb {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .wiki-article {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .wiki-article #infoboxborder,
+  .wiki-article .infobox,
+  .wiki-article table.infobox,
+  .wiki-article .wikitable.infobox {
+    float: none !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 0 14px !important;
+    overflow: visible !important;
+  }
+
+  /* 信息框保持真正的表格，不要 display:block，否则右侧内容会被挤没 */
+  .wiki-article #infoboxtable,
+  .wiki-article table.location {
+    display: table !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed;
+  }
+
+  .wiki-article #infoboxtable col,
+  .wiki-article #infoboxtable [width],
+  .wiki-article #infoboxtable [style*="width"] {
+    width: auto !important;
+  }
+
+  .wiki-article #infoboxsection {
+    width: 38% !important;
+    max-width: 38% !important;
+  }
+
+  .wiki-article #infoboxdetail {
+    width: 62% !important;
+    max-width: 62% !important;
+  }
+
+  .wiki-article #infoboxheader,
+  .wiki-article #locationimg,
+  .wiki-article #locationimg td {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .wiki-article #locationimg img {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* 宽数据表才允许横向滑动，避免整页被裁切 */
+  .wiki-article .wikitable:not(.location):not(.infobox),
+  .wiki-article .prettytable,
+  .wiki-article .mw-datatable {
+    display: block;
+    width: 100% !important;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .wiki-article th,
+  .wiki-article td {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    padding: 6px 8px !important;
+    font-size: 13px;
+    vertical-align: top;
+  }
+
+  .wiki-article .thumb,
+  .wiki-article .floatright,
+  .wiki-article .floatleft,
+  .wiki-article .tright,
+  .wiki-article .tleft {
+    float: none !important;
+    margin: 0 0 12px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .wiki-article .gallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  .wiki-article .gallerybox {
+    width: calc(50% - 4px) !important;
+    margin: 0 !important;
+  }
+
+  .wiki-article .navbox,
+  .wiki-article .navbox-inner,
+  .wiki-article .vertical-navbox {
+    display: block;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto;
+  }
+
+  .wiki-article .toc,
+  .wiki-article #toc {
+    width: 100% !important;
+    float: none !important;
+    margin: 0 0 14px !important;
+  }
+}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}发帖 · 星露谷问答社{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="compose-head">
+    <button type="button" class="compose-back" aria-label="返回论坛">&lt;</button>
+    <h1>发一个帖</h1>
+  </div>
+  <p class="muted">将以账号「{{ user.username }}」发布。</p>
+  <form method="post" action="/forum/new" class="stack" id="compose-form">
+    <label>标题 <input name="title" required maxlength="80" placeholder="请输入..."></label>
+    <label>正文 <textarea name="body" required rows="8" placeholder="请输入..."></textarea></label>
+    <button class="btn gold" type="submit">发布</button>
+  </form>
+</section>
+<dialog class="leave-ask" id="leave-ask">
+  <p class="leave-ask-title">要离开这篇帖子吗？</p>
+  <div class="leave-actions">
+    <button type="button" class="btn" data-act="drop">直接退出</button>
+    <button type="button" class="btn gold" data-act="keep">保存后退出</button>
+  </div>
+</dialog>
+<script>
+  (function () {
+    if (window.__composeUnbind) window.__composeUnbind();
+    var key = "forum-draft-{{ user.id }}";
+    var form = document.getElementById("compose-form");
+    var title = form.querySelector("[name=title]");
+    var body = form.querySelector("[name=body]");
+    var ask = document.getElementById("leave-ask");
+    var back = document.querySelector(".compose-back");
+    var pending = "/forum";
+    var bypass = false;
+    function blank() {
+      return !title.value.trim() && !body.value.trim();
+    }
+    function go(url) {
+      bypass = true;
+      location.href = url || pending || "/forum";
+    }
+    function openAsk(url) {
+      pending = url || "/forum";
+      if (ask.open) ask.close();
+      ask.showModal();
+    }
+    try {
+      var saved = JSON.parse(localStorage.getItem(key) || "null");
+      if (saved && (saved.title || saved.body)) {
+        if (saved.title) title.value = saved.title;
+        if (saved.body) body.value = saved.body;
+      }
+    } catch (err) {}
+    back.addEventListener("click", function () {
+      if (blank()) {
+        localStorage.removeItem(key);
+        go("/forum");
+        return;
+      }
+      openAsk("/forum");
+    });
+    function onLink(event) {
+      if (bypass || event.target.closest("#leave-ask")) return;
+      var anchor = event.target.closest("a[href]");
+      if (!anchor || anchor.target === "_blank") return;
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var next = new URL(anchor.getAttribute("href"), location.href);
+      if (next.origin !== location.origin || next.pathname === "/forum/new") return;
+      if (blank()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openAsk(next.href);
+    }
+    function onUnload(event) {
+      if (bypass || blank()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    document.addEventListener("click", onLink, true);
+    window.addEventListener("beforeunload", onUnload);
+    ask.querySelector("[data-act=drop]").addEventListener("click", function () {
+      localStorage.removeItem(key);
+      go(pending);
+    });
+    ask.querySelector("[data-act=keep]").addEventListener("click", function () {
+      localStorage.setItem(key, JSON.stringify({ title: title.value, body: body.value }));
+      go(pending);
+    });
+    form.addEventListener("submit", function () {
+      bypass = true;
+      localStorage.removeItem(key);
+    });
+    window.__composeUnbind = function () {
+      document.removeEventListener("click", onLink, true);
+      window.removeEventListener("beforeunload", onUnload);
+      window.__composeUnbind = null;
+    };
+  })();
+</script>
+{% endblock %}

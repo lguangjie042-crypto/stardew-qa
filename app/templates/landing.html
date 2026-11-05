@@ -1,0 +1,484 @@
+{% extends "base.html" %}
+{% block title %}首页 · 星露谷问答社{% endblock %}
+{% block body_class %}landing{% endblock %}
+{% block content %}
+<div class="valley-day">
+  <div class="valley-day-sky" aria-hidden="true"></div>
+  <div class="valley-day-far" aria-hidden="true"></div>
+  <button class="valley-sun" type="button" aria-label="太阳"></button>
+  <div class="valley-day-clouds" aria-hidden="true"></div>
+  <div class="valley-day-near" aria-hidden="true"></div>
+  <div class="valley-shade" aria-hidden="true"></div>
+  <div class="valley-glow" aria-hidden="true"></div>
+</div>
+<div class="valley-night">
+  <div class="valley-sky" aria-hidden="true"></div>
+  <div class="valley-clouds" aria-hidden="true"></div>
+  <button class="valley-moon" type="button" aria-label="月亮"></button>
+  <div class="valley-far" aria-hidden="true"></div>
+  <div class="valley-fore" aria-hidden="true">
+    <div class="valley-near"></div>
+    <div class="valley-ground"></div>
+  </div>
+</div>
+<section class="valley-hero">
+  <img class="valley-title" src="/static/stardew-wordmark.png?v=1" alt="Stardew Valley">
+</section>
+<section class="valley-stage">
+  <div class="valley-pin">
+    <p class="valley-blurb"><strong>星露谷物语</strong>是一种结合了农场管理、探索、采集和社交的农场模拟游戏。玩家扮演一个离开城市生活的角色，返回家乡继承了一座遗弃的农场。在这里，玩家可以种植作物、养殖动物、收集资源，并与邻里社区中的其他角色互动。</p>
+    <div class="valley-carousel" data-carousel>
+    <div class="valley-carousel-viewport">
+      <div class="valley-carousel-track">
+        <figure class="valley-carousel-slide"><img src="/static/home-slide-1.jpg?v=1" alt="" decoding="async"></figure>
+        <figure class="valley-carousel-slide"><img src="/static/home-slide-2.jpg?v=1" alt="" decoding="async"></figure>
+        <figure class="valley-carousel-slide"><img src="/static/home-slide-3.jpg?v=1" alt="" decoding="async"></figure>
+        <figure class="valley-carousel-slide"><img src="/static/home-slide-4.jpg?v=1" alt="" decoding="async"></figure>
+        <figure class="valley-carousel-slide"><img src="/static/home-slide-5.jpg?v=1" alt="" decoding="async"></figure>
+      </div>
+      <button type="button" class="valley-carousel-btn valley-carousel-prev" aria-label="上一张">&lsaquo;</button>
+      <button type="button" class="valley-carousel-btn valley-carousel-next" aria-label="下一张">&rsaquo;</button>
+    </div>
+    <div class="valley-carousel-dots" role="tablist" aria-label="轮播指示"></div>
+    </div>
+  </div>
+</section>
+<section class="landing-cta">
+  <div class="landing-cta-inner">
+    <h2>有关于游戏的问题？直接告诉小谷</h2>
+    <p>小谷会读取已同步的 Wiki 资料，整理成中文回答。</p>
+    <a class="btn gold" href="/wiki#ask">开始提问</a>
+  </div>
+</section>
+<script>
+  (function () {
+    if (window.__valleyUnbind) window.__valleyUnbind();
+    var night = document.querySelector(".valley-night");
+    var clouds = document.querySelector(".valley-clouds");
+    var far = document.querySelector(".valley-far");
+    var fore = document.querySelector(".valley-fore");
+    var moon = document.querySelector(".valley-moon");
+    var daySky = document.querySelector(".valley-day-sky");
+    var dayFar = document.querySelector(".valley-day-far");
+    var dayClouds = document.querySelector(".valley-day-clouds");
+    var dayNear = document.querySelector(".valley-day-near");
+    var sun = document.querySelector(".valley-sun");
+    var pin = document.querySelector(".valley-pin");
+    var shade = document.querySelector(".valley-shade");
+    var glow = document.querySelector(".valley-glow");
+    if (!fore || !moon || !sun || !dayNear) return;
+    var cut = { x: 672, y: 66, w: 177, h: 178 };
+    var sceneW = 1024;
+    var sceneH = 576;
+    var moonDisc = 42 / 177;
+    var sunOuterFrac = 516.1 / 518.5;
+    var cloudPx = null;
+    var sunSamples = null;
+    var cm = 0;
+    var frame = 0;
+
+    function cmPx() {
+      if (cm) return cm;
+      var probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;left:0;top:0;width:1cm;height:1px;visibility:hidden;pointer-events:none;";
+      document.body.appendChild(probe);
+      cm = probe.getBoundingClientRect().width || 37.7952755906;
+      probe.remove();
+      return cm;
+    }
+
+    function sceneLayout(vw, vh) {
+      var scale = Math.max(vw / sceneW, vh / sceneH);
+      var scenePxW = sceneW * scale;
+      var scenePxH = sceneH * scale;
+      var ox = (vw - scenePxW) / 2;
+      var oy = (vh - scenePxH) / 2;
+      var unit = cmPx();
+      var moonW = cut.w * scale;
+      var moonH = cut.h * scale;
+      var pad = 8;
+      var moonLeft = ox + cut.x * scale + unit * 2;
+      var moonRight = moonLeft + moonW;
+      if (moonRight > vw - pad) ox -= moonRight - (vw - pad);
+      moonLeft = ox + cut.x * scale + unit * 2;
+      if (moonLeft < pad) ox += pad - moonLeft;
+      if (scenePxW > vw) {
+        ox = Math.max(Math.min(ox, 0), vw - scenePxW);
+      }
+      var moonTop = oy + cut.y * scale;
+      if (moonTop < pad) oy += pad - moonTop;
+      if (scenePxH > vh) {
+        oy = Math.max(Math.min(oy, 0), vh - scenePxH);
+      }
+      var moonR = moonW * moonDisc;
+      var sunW = Math.max(32, moonW - unit * 1.8);
+      var sunH = Math.max(32, moonH - unit * 1.8);
+      var sunR = Math.max(8, moonR - unit * 0.9);
+      return {
+        scale: scale,
+        scenePxW: scenePxW,
+        scenePxH: scenePxH,
+        ox: ox,
+        oy: oy,
+        moonW: moonW,
+        moonH: moonH,
+        sunW: sunW,
+        sunH: sunH,
+        sunR: sunR,
+        unit: unit,
+        startX: ox + 390 * scale,
+        startY: -sunR * 0.62,
+        endX: vw - sunW / 2 - 16 - unit,
+        endY: sunH / 2 + 16 + unit * 0.5
+      };
+    }
+
+    function metrics() {
+      var rawW = window.innerWidth;
+      var rawH = window.innerHeight;
+      var framed = rawW >= 1600;
+      var s = framed ? Math.min(rawW / 1440, rawH / 900) : 1;
+      var shiftX = framed ? (rawW - 1440 * s) / 2 : 0;
+      document.body.style.setProperty("--land-s", String(s));
+      var hero = document.querySelector(".valley-hero");
+      if (hero) {
+        if (framed) {
+          var sky = document.querySelector(".sky");
+          var head = document.querySelector(".top");
+          var chrome = (sky ? sky.offsetHeight : 0) + (head ? head.offsetHeight : 0);
+          var extra = chrome * (s - 1);
+          hero.style.paddingTop = (63 * s + extra) + "px";
+          hero.style.minHeight = (900 * s + extra) + "px";
+        } else {
+          hero.style.paddingTop = "";
+          hero.style.minHeight = "";
+        }
+      }
+      var L = sceneLayout(framed ? 1440 : rawW, framed ? 900 : rawH);
+      var ox = L.ox * s + shiftX;
+      var oy = L.oy * s;
+      var scale = L.scale * s;
+      var scenePxW = L.scenePxW * s;
+      var scenePxH = L.scenePxH * s;
+      var moonW = L.moonW * s;
+      var moonH = L.moonH * s;
+      var sunW = L.sunW * s;
+      var sunH = L.sunH * s;
+      var sunR = L.sunR * s;
+      document.body.style.setProperty("--scene-x", Math.round(ox) + "px");
+      document.body.style.setProperty("--scene-y", Math.round(oy) + "px");
+      document.body.style.setProperty("--scene-w", Math.round(scenePxW) + "px");
+      document.body.style.setProperty("--scene-h", Math.round(scenePxH) + "px");
+      moon.style.left = Math.round(ox + cut.x * scale) + "px";
+      moon.style.top = Math.round(oy + cut.y * scale) + "px";
+      moon.style.width = Math.round(moonW) + "px";
+      moon.style.height = Math.round(moonH) + "px";
+      moon.style.marginLeft = (L.unit * 2 * s) + "px";
+      return {
+        vw: rawW,
+        vh: framed ? 900 * s : rawH,
+        scale: scale,
+        ox: ox,
+        oy: oy,
+        moonW: moonW,
+        moonH: moonH,
+        sunW: sunW,
+        sunH: sunH,
+        sunR: sunR,
+        startX: L.startX * s + shiftX,
+        startY: L.startY * s,
+        unit: L.unit * s,
+        endX: L.endX * s + shiftX,
+        endY: L.endY * s,
+        viewW: rawW,
+        viewH: rawH
+      };
+    }
+
+    function prepMasks() {
+      if (!cloudImg.naturalWidth || !sunImg.naturalWidth) return;
+      var c = document.createElement("canvas");
+      c.width = cloudImg.naturalWidth;
+      c.height = cloudImg.naturalHeight;
+      var ctx = c.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(cloudImg, 0, 0);
+      cloudPx = ctx.getImageData(0, 0, c.width, c.height).data;
+      var s = document.createElement("canvas");
+      s.width = sunImg.naturalWidth;
+      s.height = sunImg.naturalHeight;
+      var sctx = s.getContext("2d", { willReadFrequently: true });
+      sctx.drawImage(sunImg, 0, 0);
+      var data = sctx.getImageData(0, 0, s.width, s.height).data;
+      var step = 16;
+      var samples = [];
+      for (var y = 0; y < s.height; y += step) {
+        for (var x = 0; x < s.width; x += step) {
+          var a = data[(y * s.width + x) * 4 + 3];
+          if (a > 36) samples.push([x / s.width, y / s.height, a / 255]);
+        }
+      }
+      sunSamples = samples;
+    }
+
+    function geomExposure(cx, cy, r, vw, vh) {
+      if (!(r > 0)) return 0;
+      var n = 0;
+      var vis = 0;
+      for (var i = 0; i < 7; i++) {
+        var rr = r * Math.sqrt((i + 0.5) / 7);
+        var steps = 8 + i * 3;
+        for (var k = 0; k < steps; k++) {
+          var a = (k / steps) * 6.283185307179586;
+          n++;
+          var x = cx + Math.cos(a) * rr;
+          var y = cy + Math.sin(a) * rr;
+          if (x >= 0 && y >= 0 && x <= vw && y <= vh) vis++;
+        }
+      }
+      return n ? vis / n : 0;
+    }
+
+    function exposure(cx, cy, m, cloudTx, cloudTy) {
+      if (!sunSamples || !cloudPx) return geomExposure(cx, cy, m.sunR, m.viewW, m.viewH);
+      var left = cx - m.sunW / 2;
+      var top = cy - m.sunH / 2;
+      var total = 0;
+      var vis = 0;
+      var cw = 1024;
+      var ch = 576;
+      for (var i = 0; i < sunSamples.length; i++) {
+        var u = sunSamples[i][0];
+        var v = sunSamples[i][1];
+        var wgt = sunSamples[i][2];
+        total += wgt;
+        var sx = left + u * m.sunW;
+        var sy = top + v * m.sunH;
+        if (sx < 0 || sy < 0 || sx > m.viewW || sy > m.viewH) continue;
+        var ix = (sx - cloudTx - m.ox) / m.scale;
+        var iy = (sy - cloudTy - m.oy) / m.scale;
+        if (ix < 0 || iy < 0 || ix >= cw || iy >= ch) {
+          vis += wgt;
+          continue;
+        }
+        var px = ((iy + 0.5) | 0) * cw + ((ix + 0.5) | 0);
+        if (px < 0 || px >= cw * ch) continue;
+        if (cloudPx[px * 4 + 3] < 150) vis += wgt;
+      }
+      return total ? vis / total : 0;
+    }
+
+    function apply() {
+      if (!fore.isConnected) {
+        if (window.__valleyUnbind) window.__valleyUnbind();
+        return;
+      }
+      var m = metrics();
+      var t = Math.max(0, Math.min(1, (window.scrollY || 0) / m.vh));
+      var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      var slideU = Math.max(0, Math.min(1, (t - 0.34) / 0.58));
+      var slide = reduce ? (t > 0.5 ? 1 : 0) : (slideU * slideU * (3 - 2 * slideU));
+      var dropU = Math.max(0, Math.min(1, (t - 0.22) / 0.7));
+      var drop = reduce ? slide : (dropU * dropU * (3 - 2 * dropU));
+      var cx = m.startX + (m.endX - m.startX) * slide;
+      var cy = m.startY + (m.endY - m.startY) * drop;
+      var follow = 0;
+      if (pin) follow = Math.min(0, pin.getBoundingClientRect().top - m.vh * 0.25);
+      var sunCy = cy + follow;
+      sun.style.width = Math.round(m.sunW) + "px";
+      sun.style.height = Math.round(m.sunH) + "px";
+      sun.style.left = (cx - m.sunW / 2) + "px";
+      sun.style.top = (sunCy - m.sunH / 2) + "px";
+
+      var cloudTx = 0;
+      var cloudTy = reduce ? 0 : (1 - t) * m.vh * 0.2;
+      var farTy = reduce ? 0 : (1 - t) * m.vh * 0.045;
+      var nearTy = reduce ? 0 : (1 - t) * m.vh * 0.11;
+      var skyTy = reduce ? 0 : (1 - t) * m.vh * 0.015;
+      if (daySky) daySky.style.transform = "translate(0," + Math.round(skyTy) + "px)";
+      if (dayFar) dayFar.style.transform = "translate(0," + Math.round(farTy) + "px)";
+      if (dayNear) dayNear.style.transform = "translate(0," + Math.round(nearTy) + "px)";
+      if (dayClouds) dayClouds.style.transform = "translate(" + Math.round(cloudTx) + "px," + Math.round(cloudTy) + "px)";
+
+      var light = reduce ? t : exposure(cx, cy, m, cloudTx, cloudTy);
+      if (t <= 0.001) light = 0;
+      light = Math.max(0, Math.min(1, light));
+      // 太阳还没露出来时继续盖着夜景，避免白天图层被压黑后整屏变黑。
+      var nightA = 1 - Math.min(1, light / 0.42);
+      if (night) night.style.opacity = String(nightA);
+      moon.style.pointerEvents = nightA > 0.4 ? "auto" : "none";
+      var lit = Math.max(0, Math.min(1, light));
+      if (shade) shade.style.opacity = (1 - lit).toFixed(3);
+      if (glow) {
+        var glowA = Math.sin(Math.max(0, Math.min(1, light)) * Math.PI) * 0.72;
+        glow.style.opacity = String(glowA);
+        glow.style.background = "radial-gradient(circle at " + cx.toFixed(1) + "px " + sunCy.toFixed(1) + "px, rgba(255,236,180,0.95) 0%, rgba(255,196,80,0.42) 22%, rgba(255,160,40,0) 56%)";
+      }
+
+      var shift = t * m.vh;
+      fore.style.transform = "translate(0," + Math.round(-shift) + "px)";
+      if (far) far.style.transform = "translate(0," + Math.round(-(reduce ? shift : shift * 0.72)) + "px)";
+      if (clouds) clouds.style.transform = "translate(0," + Math.round(-(reduce ? 0 : shift * 0.36)) + "px)";
+    }
+
+    function onScroll() {
+      if (frame) return;
+      frame = window.requestAnimationFrame(function () {
+        frame = 0;
+        apply();
+      });
+    }
+
+    var cloudImg = new Image();
+    var sunImg = new Image();
+    function onMask() {
+      if (!cloudImg.naturalWidth || !sunImg.naturalWidth) return;
+      prepMasks();
+      apply();
+    }
+    cloudImg.onload = onMask;
+    sunImg.onload = onMask;
+    cloudImg.src = "/static/day-clouds.png?v=1";
+    sunImg.src = "/static/day-sun.png?v=1";
+    apply();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+
+    var faceStops = [];
+    function rememberFace(key) {
+      try { sessionStorage.setItem(key, "1"); } catch (err) { /* private mode */ }
+    }
+    function faceOn(key) {
+      try { return sessionStorage.getItem(key) === "1"; } catch (err) { return false; }
+    }
+    function startBlink(el) {
+      var alive = true;
+      var timers = [];
+      function later(fn, ms) {
+        var id = window.setTimeout(function () {
+          if (!alive || !el.isConnected) return;
+          fn();
+        }, ms);
+        timers.push(id);
+      }
+      function shut(next) {
+        el.classList.add("is-blink");
+        later(function () {
+          el.classList.remove("is-blink");
+          if (next) next();
+        }, 150);
+      }
+      function loop() {
+        later(function () {
+          shut(function () {
+            if (Math.random() < 0.3) later(function () { shut(loop); }, 170);
+            else loop();
+          });
+        }, 2200 + Math.random() * 2000);
+      }
+      later(function () { shut(loop); }, 480);
+      return function () {
+        alive = false;
+        timers.forEach(function (id) { window.clearTimeout(id); });
+        el.classList.remove("is-blink");
+      };
+    }
+    function armFace(el, key) {
+      var stopBlink = null;
+      function reveal() {
+        if (el.classList.contains("is-face")) return;
+        el.classList.add("is-face");
+        rememberFace(key);
+        stopBlink = startBlink(el);
+      }
+      if (faceOn(key)) reveal();
+      var count = 0;
+      function onClick() {
+        if (el.classList.contains("is-face")) return;
+        count += 1;
+        if (count >= 10) reveal();
+      }
+      el.addEventListener("click", onClick);
+      faceStops.push(function () {
+        el.removeEventListener("click", onClick);
+        if (stopBlink) stopBlink();
+      });
+    }
+    armFace(moon, "valley-moon-face");
+    armFace(sun, "valley-sun-face");
+
+    (function initCarousel() {
+      var root = document.querySelector("[data-carousel]");
+      if (!root) return;
+      var track = root.querySelector(".valley-carousel-track");
+      var prev = root.querySelector(".valley-carousel-prev");
+      var next = root.querySelector(".valley-carousel-next");
+      var dotsHost = root.querySelector(".valley-carousel-dots");
+      var n = root.querySelectorAll(".valley-carousel-slide").length;
+      if (!track || !prev || !next || !dotsHost || !n) return;
+      var idx = 0;
+      var timer = null;
+      var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      for (var i = 0; i < n; i++) {
+        var dot = document.createElement("button");
+        dot.type = "button";
+        dot.className = "valley-carousel-dot";
+        dot.setAttribute("role", "tab");
+        dot.setAttribute("aria-label", "第 " + (i + 1) + " 张");
+        (function (at) {
+          dot.addEventListener("click", function () {
+            go(at);
+            restartAuto();
+          });
+        })(i);
+        dotsHost.appendChild(dot);
+      }
+      var dots = dotsHost.querySelectorAll(".valley-carousel-dot");
+      function render() {
+        track.style.transform = "translate3d(" + (-idx * 100) + "%,0,0)";
+        for (var d = 0; d < dots.length; d++) {
+          dots[d].classList.toggle("on", d === idx);
+          dots[d].setAttribute("aria-selected", d === idx ? "true" : "false");
+        }
+      }
+      function go(at) {
+        idx = (at + n) % n;
+        render();
+      }
+      function step(dir) {
+        go(idx + dir);
+      }
+      function restartAuto() {
+        if (timer) window.clearInterval(timer);
+        timer = null;
+        if (reduceMotion) return;
+        timer = window.setInterval(function () {
+          step(1);
+        }, 8000);
+      }
+      prev.addEventListener("click", function () {
+        step(-1);
+        restartAuto();
+      });
+      next.addEventListener("click", function () {
+        step(1);
+        restartAuto();
+      });
+      render();
+      restartAuto();
+      faceStops.push(function () {
+        if (timer) window.clearInterval(timer);
+      });
+    })();
+
+    window.__valleyUnbind = function () {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+      cloudImg.onload = null;
+      sunImg.onload = null;
+      faceStops.forEach(function (fn) { fn(); });
+      window.__valleyUnbind = null;
+    };
+  })();
+</script>
+{% endblock %}

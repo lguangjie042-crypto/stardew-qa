@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "bits.html" import actions with context %}
+{% block title %}论坛 · 星露谷问答社{% endblock %}
+{% block content %}
+<section class="row">
+  <h1 class="plaque"><span class="hello">欢迎来到</span><span class="forum-name"><span class="hop">论</span><span class="hop later">坛</span></span></h1>
+  <div class="actions">
+    <details class="find" {% if date or author %}open{% endif %}>
+      <summary class="btn">查找</summary>
+      <form class="find-form" action="/forum" method="get">
+        <label>发布日期 <input type="date" name="date" value="{{ date }}"></label>
+        <label>发布者 <input name="author" value="{{ author }}" placeholder="用户名" maxlength="32"></label>
+        <button class="btn gold" type="submit">筛选</button>
+        {% if date or author %}<a class="btn" href="/forum">清除</a>{% endif %}
+      </form>
+    </details>
+    {% if user %}
+    <a class="btn gold" href="/forum/new">发帖</a>
+    {% else %}
+    <a class="btn gold" href="/me?next=/forum/new">登录后发帖</a>
+    {% endif %}
+  </div>
+</section>
+<ul class="cards">
+  {% for p in posts %}
+  <li class="card item post-line">
+    <div class="post-main">
+      <a href="/forum/{{ p.id }}"><h2>{{ p.title }}</h2></a>
+      {% if p.body %}<p class="excerpt">{{ p.body | excerpt }}</p>{% endif %}
+      <p class="muted">
+        {% if p.user_id %}
+        <a class="avatar-link" href="/u/{{ '%04d'|format(p.user_id) }}" title="打开主页">{{ avatar_emoji(p.avatar) }}</a>
+        {% else %}
+        <span class="avatar">{{ avatar_emoji(p.avatar) }}</span>
+        {% endif %}
+        {{ p.username }}
+        {% if p.user_id %}<a class="handle" href="/u/{{ '%04d'|format(p.user_id) }}">{{ user_handle(p.user_id) }}</a>{% endif %}
+        · {{ p.created_at | forum_when }} · {{ p.comments }} 条回复
+      </p>
+      {% if is_admin %}
+      <form method="post" action="/forum/{{ p.id }}/delete" onsubmit="return confirm('删除这篇帖子？评论、点赞和收藏会一起消失。');">
+        <button class="text-btn danger" type="submit">删除帖子</button>
+      </form>
+      {% endif %}
+    </div>
+    {{ actions(p, next_url, peers) }}
+  </li>
+  {% else %}
+  <li class="card">还没有帖子。</li>
+  {% endfor %}
+</ul>
+{% endblock %}
