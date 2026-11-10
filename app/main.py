@@ -344,7 +344,7 @@ def wiki_sync(request: Request):
     return RedirectResponse("/wiki", status_code=303)
 
 
-def forum_posts(conn, viewer_id: int | None, date: str, author: str):
+def forum_posts(conn, viewer_id: int | None, date: str, author: str, content: str):
     params: list = []
     liked = "0 AS liked, 0 AS saved"
     if viewer_id:
@@ -373,15 +373,20 @@ def forum_posts(conn, viewer_id: int | None, date: str, author: str):
         sql += " AND (COALESCE(u.username, p.nickname) LIKE ? OR p.nickname LIKE ?)"
         like = f"%{author}%"
         params.extend([like, like])
+    content = (content or "").strip()[:80]
+    if content:
+        sql += " AND (p.title LIKE ? OR p.body LIKE ?)"
+        like = f"%{content}%"
+        params.extend([like, like])
     sql += " ORDER BY p.id DESC"
-    return conn.execute(sql, params).fetchall(), date, author
+    return conn.execute(sql, params).fetchall(), date, author, content
 
 
 @app.get("/forum")
-def forum(request: Request, date: str = "", author: str = "", shared: str = ""):
+def forum(request: Request, date: str = "", author: str = "", content: str = "", shared: str = ""):
     user = current_user(request)
     conn = connect()
-    posts, date, author = forum_posts(conn, user["id"] if user else None, date, author)
+    posts, date, author, content = forum_posts(conn, user["id"] if user else None, date, author, content)
     peers = chat_peers(conn, user["id"]) if user else []
     conn.close()
     query = []
@@ -389,11 +394,22 @@ def forum(request: Request, date: str = "", author: str = "", shared: str = ""):
         query.append(f"date={quote(date)}")
     if author:
         query.append(f"author={quote(author)}")
+    if content:
+        query.append(f"content={quote(content)}")
     next_url = "/forum" + (f"?{'&'.join(query)}" if query else "")
     notice = "已分享到私聊" if shared else ""
     return templates.TemplateResponse(
         "forum.html",
-        ctx(request, posts=posts, peers=peers, date=date, author=author, next_url=next_url, notice=notice),
+        ctx(
+            request,
+            posts=posts,
+            peers=peers,
+            date=date,
+            author=author,
+            content=content,
+            next_url=next_url,
+            notice=notice,
+        ),
     )
 
 

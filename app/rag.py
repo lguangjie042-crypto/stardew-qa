@@ -39,8 +39,8 @@ NO_DATA = "暂无相关资料"
 # 系统提示固定在代码里，不从环境变量读取。
 SYSTEM_PROMPT = """你是问答助手「小谷」。只根据本次给出的参考资料，写成一段简短总结。
 先用一两句话直接回答问题，再补两三句资料里的名称、地点、售价或天数。
-问「多少种」「有几种」「有多少」时，第一句必须给出数字（或明确说资料里数不清），不要改成介绍玩法、技能或小游戏。
-问「有哪些」「可以钓什么」「能抓什么」时，先给数量或短名单，不要改成介绍该活动怎么玩。
+问「多少种」「有几种」「有多少」时，第一句必须给出数字（或明确说资料里数不清），不要改成介绍玩法、技能或小游戏。只数【词条】里的名字。地点、季节、售价、用途是该词条的子字段，不能把子字段当成一种。栏目标题、弹药、属性说明、售价公式都不是一件物品。资料若分开写了「可以拿到」和「拿不到」，两种数量都要说。
+问「有哪些」「可以钓什么」「能抓什么」时，先给数量或短名单，不要改成介绍该活动怎么玩。名单只用【词条】名。
 用户提到的地点、季节、方式是过滤条件，只回答符合这些条件的内容，不要回答更大范围的总览。
 给了【最近的对话】时，结合它理解用户这句话的指代（比如「那夏天呢」指上一轮的话题）；答案中的名称和数字仍必须来自本次参考资料。
 资料里没有的名称和数字不要写，不要写英文，不要编造数量。
@@ -447,6 +447,9 @@ def _paragraph_score(part: str, terms: list[str], question: str = "") -> int:
     # 多地点索引表（一串 •）容易让模型把邻近水域当成同一种鱼的地点。
     if part.count("•") >= 3:
         score -= 55
+    # 问种类时，长段导语让位给词条。词条名在地点、季节这些短行的上面。
+    if any(key in question for key in ("多少种", "几种", "有哪些", "哪些", "有什么")) and len(part) > 60 and "。" in part:
+        score -= 40
     # 「怎么钓」优先采用写明能在哪钓到的句子，避免送礼/裁制段里的地点名抢戏。
     if any(word in question for word in ("钓", "抓", "怎么", "如何", "哪里")):
         if any(mark in part for mark in ("可以在", "中钓到", "钓到", "位置")):
@@ -469,6 +472,48 @@ def _source_followers(lines: list[str], index: int, terms: list[str]) -> list[in
             continue
         break
     return found
+
+
+def _entry_blurb_at(lines: list[str], index: int) -> int:
+    """说明可以紧挨着名字，也可以隔着等级、价格这种短行。"""
+    for cursor in range(index + 1, min(len(lines), index + 5)):
+        line = lines[cursor]
+        if "。" in line and 6 <= len(line) <= 40:
+            return cursor
+        # 碰到另一个短中文名就停下，避免把下一条武器的说明算到表头上。
+        if re.fullmatch(r"[\u4e00-\u9fff]{2,8}", line) or len(line) > 24:
+            return -1
+    return -1
+
+
+def _is_entry_name(lines: list[str], index: int) -> bool:
+    """一条词条名：短中文，后面几行里有一句短说明。"""
+    line = lines[index]
+    if not re.fullmatch(r"[\u4e00-\u9fff]{2,8}", line):
+        return False
+    return _entry_blurb_at(lines, index) >= 0
+
+
+def _entry_span(lines: list[str], index: int) -> list[int] | None:
+    """短行若落在某条词条的字段里，连同词条名和它下面的说明一起取出。"""
+    head = None
+    for cursor in range(index, max(-1, index - 30), -1):
+        if _is_entry_name(lines, cursor):
+            head = cursor
+            break
+    if head is None:
+        return None
+    span = [head]
+    for cursor in range(head + 1, min(len(lines), head + 28)):
+        if _is_entry_name(lines, cursor):
+            break
+        line = lines[cursor]
+        if line.startswith("data-sort-value"):
+            continue
+        if re.search(r"\d[\d,]*金$", line) and any(re.search(r"\d[\d,]*金$", lines[i]) for i in span):
+            continue
+        span.append(cursor)
+    return span
 
 
 def _excerpt(question: str, text: str) -> str:
@@ -495,8 +540,8 @@ def _excerpt(question: str, text: str) -> str:
             continue
         if "混合种子" in part and "混合" not in question:
             continue
-        group = [index]
-        if len(part) <= 16:
+        group = _entry_span(paragraphs, index) or [index]
+        if group == [index] and len(part) <= 16:
             group.extend(_source_followers(paragraphs, index, terms))
         for cursor in group:
             if cursor in picked:
@@ -517,6 +562,111 @@ def _excerpt(question: str, text: str) -> str:
     return "\n".join(paragraphs[index] for index in sorted(picked))
 
 
+def _kind_question(question: str) -> bool:
+    return any(key in question for key in ("多少种", "几种", "有哪些", "哪些", "有什么", "可以钓", "能钓"))
+
+
+_WEAPON_HEADS = ("剑", "匕首", "棍棒", "弹弓", "无法获得的武器")
+
+
+def _section_blurb(lines: list[str], name: str) -> str:
+    """取分类标题下面的第一句，不取表格里某一把武器的说明。"""
+    for index, line in enumerate(lines[:-1]):
+        if line != name or "•" in lines[index + 1]:
+            continue
+        sentence = lines[index + 1].split("。")[0].strip()
+        if "。" in lines[index + 1] and 6 <= len(sentence) <= 40 and not sentence.startswith("影响"):
+            return sentence + "。"
+    return ""
+
+
+def _weapon_entries(lines: list[str]) -> list[dict]:
+    """种类是目录里的剑、匕首、棍棒、弹弓、无法获得的武器。武器属性不是一种武器。"""
+    present = {
+        name
+        for name in _WEAPON_HEADS
+        if any(re.fullmatch(rf"\d+\s+{re.escape(name)}", line) for line in lines)
+    }
+    if not {"剑", "匕首", "棍棒", "弹弓"} <= present:
+        return []
+    entries: list[dict] = []
+    for name in _WEAPON_HEADS:
+        if name not in present:
+            continue
+        entries.append({
+            "name": name,
+            "body": _section_blurb(lines, name) or "这一类武器。",
+            "place": "",
+            "season": "",
+            "kind": "类别",
+        })
+    return entries
+
+
+def _entry_tree(text: str) -> list[dict]:
+    """把扁平正文收成词条树：名字是父节点，说明、地点、季节是子节点。"""
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    weapons = _weapon_entries(lines)
+    if weapons:
+        return weapons
+    entries: list[dict] = []
+    seen: set[str] = set()
+    index = 0
+    while index < len(lines) - 1:
+        name = lines[index]
+        if name in {"食谱", "生鱼片利润", "历史", "参考", "外部链接", "生鱼寿司", "高级肥料", "生鱼片"}:
+            break
+        if not _is_entry_name(lines, index) or name in seen or name in {"钓鱼小游戏", "运动模式"}:
+            index += 1
+            continue
+        blurb_at = _entry_blurb_at(lines, index)
+        blurb = lines[blurb_at]
+        if blurb.startswith("影响"):
+            index = blurb_at + 1
+            continue
+        fields: list[str] = []
+        cursor = blurb_at + 1
+        while cursor < len(lines) and cursor < index + 28 and not _is_entry_name(lines, cursor):
+            line = lines[cursor]
+            if not line.startswith("data-sort-value") and not re.fullmatch(r"[\d,]+金", line):
+                fields.append(line)
+            cursor += 1
+        place = next((line for line in fields if any(mark in line for mark in ("海洋", "河流", "湖泊", "矿井", "沙漠", "下水道", "森林", "姜岛", "池塘"))), "")
+        season = next((line for line in fields if "季" in line and len(line) <= 12), "")
+        entries.append({"name": name, "body": blurb, "place": place, "season": season})
+        seen.add(name)
+        index = cursor
+    return entries
+
+
+def _tree_context(title: str, text: str, question: str) -> str:
+    """标题用来定位，送给模型的是父节点名字和它下面的正文。"""
+    if not _kind_question(question):
+        return ""
+    entries = _entry_tree(text)
+    if len(entries) < 5:
+        return ""
+    if entries[0].get("kind") == "类别":
+        names = "、".join(entry["name"] for entry in entries)
+        blocks = [
+            f"【目录】{title}有 {len(entries)} 种：{names}。"
+            "武器属性（速度、防御、重量、暴击率、暴击力量）不是武器，每一把具体的剑或匕首也不是单独的一种。"
+            "数种类时只数下面这几个【词条】。"
+        ]
+    else:
+        blocks = [
+            f"【目录】{title} 下面有 {len(entries)} 个词条。数种类时只数【词条】，不要数地点、季节或用途。"
+        ]
+    for entry in entries:
+        line = f"【词条】{entry['name']} 正文：{entry['body']}"
+        if entry["place"]:
+            line += f" 子字段地点：{entry['place']}"
+        if entry["season"]:
+            line += f" 子字段季节：{entry['season']}"
+        blocks.append(line)
+    return "\n".join(blocks)
+
+
 def _format_parents(docs: list[Document], question: str) -> str:
     blocks = []
     total = 0
@@ -524,7 +674,8 @@ def _format_parents(docs: list[Document], question: str) -> str:
         if total >= CONTEXT_BUDGET:
             break
         title = doc.metadata.get("title") or "Wiki"
-        body = _excerpt(question, doc.page_content or "")
+        tree = _tree_context(str(title), doc.page_content or "", question)
+        body = tree or _excerpt(question, doc.page_content or "")
         room = CONTEXT_BUDGET - total
         if len(body) > room:
             body = body[:room]

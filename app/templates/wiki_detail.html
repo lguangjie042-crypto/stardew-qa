@@ -8,7 +8,7 @@
 {% block title %}{{ page.display_title or page.title }} · Wiki{% endblock %}
 {% block content %}
 <article class="card article wiki-page">
-  <p class="crumb"><a href="/wiki">维基</a> / {{ page.category or "Wiki" }} / {{ page.display_title or page.title }}</p>
+  <p class="crumb"><a href="/wiki">维基</a> / {% if page.category %}<a class="crumb-cat" href="/wiki?cat={{ page.category | urlencode }}">{{ page.category }}</a>{% else %}Wiki{% endif %} / {{ page.display_title or page.title }}</p>
   <h1>{{ page.display_title or page.title }}</h1>
   <p class="muted"><a href="{{ page.url }}" target="_blank" rel="noreferrer">打开官方 Wiki 原文</a></p>
   {% if page.html %}

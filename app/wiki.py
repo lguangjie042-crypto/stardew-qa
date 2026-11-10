@@ -1178,7 +1178,7 @@ def rank_pages(q: str, rows, limit: int) -> list[dict]:
     terms = focus_terms(q, names)
     if not terms:
         return []
-    scored: list[tuple[float, str, dict]] = []
+    scored: list[tuple[int, float, str, dict]] = []
     for row in rows:
         item = dict(row)
         title = item.get("title") or ""
@@ -1200,9 +1200,11 @@ def rank_pages(q: str, rows, limit: int) -> list[dict]:
         if score <= 0:
             continue
         score *= 0.4 + 0.6 * (matched / len(terms))
-        scored.append((score, shown, item))
-    scored.sort(key=lambda pair: (-pair[0], pair[1]))
-    return [item for _, _, item in scored[:limit]]
+        # 标题本身就是问句里的词时，排在只是正文里提到这个词的页前面。
+        exact = 1 if shown in terms or title in terms else 0
+        scored.append((exact, score, shown, item))
+    scored.sort(key=lambda pair: (-pair[0], -pair[1], pair[2]))
+    return [item for _, _, _, item in scored[:limit]]
 
 
 def search_wiki(q: str, limit: int = 6) -> list[dict]:

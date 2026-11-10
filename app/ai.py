@@ -82,7 +82,10 @@ def answer_question(question: str, offset: int = 0) -> dict:
                 return rag
             if rag:
                 return rag
-        # RAG 没成：仍把 Wiki 原文要点交给 Ollama，避免只回 ai.py 兜底句。
+        # 模型没答成时，种类题按标题页的词条表点数，不再摘页首无关句子。
+        counted = _catalog_answer(question) or _planting_answer(question)
+        if counted:
+            return counted
         pages = _pages_for_answer(question)
         if not pages:
             pages = get_pages_named(content_terms(question))
@@ -99,6 +102,7 @@ def answer_question(question: str, offset: int = 0) -> dict:
             "sources": [],
             "mode": "off",
         }
+
     catalog = _catalog_answer(question)
     if catalog:
         return catalog
@@ -443,6 +447,14 @@ def _page_entries(title: str, body: str) -> list[tuple[str, str]]:
         return [(name, "") for name in _bullet_names(lines)]
     if title == "鱼":
         return _described_names(lines, window=32)
+    if title == "武器":
+        kinds = [
+            name
+            for name in ("剑", "匕首", "棍棒", "弹弓", "无法获得的武器")
+            if any(re.fullmatch(rf"\d+\s+{name}", line) for line in lines)
+        ]
+        if len(kinds) >= 4:
+            return [(name, "武器") for name in kinds]
     if title == "水果":
         return _table_names(lines)
     toc = _toc_entries(lines)
@@ -1526,7 +1538,21 @@ def stream_answer(question: str, offset: int = 0, history: list | None = None):
                         }
                 yield {"kind": "done", "sources": final_sources}
                 return
-        # RAG 没成：仍把 Wiki 原文要点交给 Ollama 流式润色。
+        # 模型没答成时，种类题按标题页的词条表点数，不再摘页首无关句子。
+        counted = _catalog_answer(question) or _planting_answer(question)
+        if counted:
+            payload = {
+                "text": counted.get("answer") or "",
+                "mode": counted.get("mode") or "wiki",
+                "sources": counted.get("sources") or [],
+            }
+            if rag is not None:
+                yield {"kind": "replace", **payload}
+            else:
+                yield {"kind": "meta", "mode": payload["mode"], "sources": payload["sources"]}
+                yield {"kind": "delta", "text": payload["text"]}
+            yield {"kind": "done"}
+            return
         pages = _pages_for_answer(question)
         if not pages:
             pages = get_pages_named(content_terms(question))
@@ -1553,15 +1579,11 @@ def stream_answer(question: str, offset: int = 0, history: list | None = None):
         yield {"kind": "done"}
         return
 
-    # 没开优先 Ollama：沿用原同步逻辑，一次性给出。
+    # 本地模型没接上时，才改用词条表和 Wiki 摘句。
     yield {"kind": "status", "text": "小谷正在整理答案…"}
-    result = _catalog_answer(question)
+    result = _catalog_answer(question) or _planting_answer(question)
     if not result:
-        result = _planting_answer(question)
-    if not result:
-        rag = _try_rag(question)
-        if rag:
-            result = rag
+        result = _try_rag(question)
     if not result:
         result = _wiki_fallback(question)
     yield {

@@ -115,6 +115,14 @@
     return String(back).split("#")[0].split("?")[0];
   }
 
+  // 栏目面包屑：从维基目录或同一栏目进来时，回到跳转前的那一页。
+  function wikiCat(href) {
+    const url = new URL(href, location.href);
+    if (url.origin !== location.origin || url.pathname !== "/wiki") return null;
+    if (url.searchParams.has("q") || url.searchParams.has("p")) return null;
+    return url.searchParams.get("cat") || "";
+  }
+
   function rememberHere(key) {
     const state = Object.assign({}, history.state, { nav: 1, y: hereScroll() });
     const log = document.querySelector("body.chat-thread .chat-log");
@@ -166,7 +174,12 @@
       return;
     }
     const backTo = history.state && history.state.back;
-    if (backTo && nextKey === backTo) {
+    const prevCat = backTo ? wikiCat(backTo) : null;
+    const backToSection =
+      anchor.classList.contains("crumb-cat") &&
+      prevCat !== null &&
+      (prevCat === "" || prevCat === wikiCat(url.href));
+    if (backTo && (nextKey === backTo || backToSection)) {
       event.preventDefault();
       rememberHere(hereKey);
       history.back();
