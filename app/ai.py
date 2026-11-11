@@ -62,6 +62,17 @@ def _entity_count_reply(question: str, history: list | None = None) -> dict | No
         return None
 
 
+def _wiki_structured_reply(question: str) -> dict | None:
+    """种什么、有哪些这类名单题，用农作物页等结构化结果，不走 FTS 短摘录。"""
+    planted = _planting_answer(question)
+    if planted:
+        return planted
+    catalog = _catalog_answer(question)
+    if catalog:
+        return catalog
+    return None
+
+
 def _try_rag(question: str) -> dict | None:
     try:
         from .rag import answer_with_langchain
@@ -80,6 +91,10 @@ def answer_question(question: str, offset: int = 0) -> dict:
     counted = _entity_count_reply(question)
     if counted:
         return counted
+
+    structured = _wiki_structured_reply(question)
+    if structured:
+        return structured
 
     prefer = _prefer_ollama()
     if prefer and _ollama_chat_ready():
@@ -554,7 +569,19 @@ def _lead_text(body: str) -> str:
 def _wants_planting_summary(question: str) -> bool:
     if any(key in question for key in ("多少钱", "售价", "价格", "多贵")) and "种什么" not in question:
         return False
-    return any(key in question for key in ("种什么", "种啥", "适合种", "种植什么", "种点什么"))
+    return any(
+        key in question
+        for key in (
+            "种什么",
+            "种啥",
+            "能种什么",
+            "可以种什么",
+            "适合种",
+            "种植什么",
+            "种点什么",
+            "种哪些",
+        )
+    )
 
 
 def _shop_crops(question: str, body: str) -> list[dict]:
@@ -1523,6 +1550,17 @@ def stream_answer(question: str, offset: int = 0, history: list | None = None):
             "sources": counted.get("sources") or [],
         }
         yield {"kind": "delta", "text": counted.get("answer") or ""}
+        yield {"kind": "done"}
+        return
+
+    structured = _wiki_structured_reply(question)
+    if structured:
+        yield {
+            "kind": "meta",
+            "mode": structured.get("mode") or "wiki",
+            "sources": structured.get("sources") or [],
+        }
+        yield {"kind": "delta", "text": structured.get("answer") or ""}
         yield {"kind": "done"}
         return
 

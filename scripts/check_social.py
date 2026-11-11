@@ -17,7 +17,14 @@ b_name = f"乙{suffix}"
 
 # reuse if a previous run created them
 conn = connect()
-conn.execute("DELETE FROM messages")
+conn.execute(
+    """
+    DELETE FROM messages
+    WHERE sender_id IN (SELECT id FROM users WHERE username IN (?, ?))
+       OR recipient_id IN (SELECT id FROM users WHERE username IN (?, ?))
+    """,
+    (a_name, b_name, a_name, b_name),
+)
 conn.execute("DELETE FROM post_likes")
 conn.execute("DELETE FROM post_saves")
 conn.execute("DELETE FROM comments WHERE nickname IN (?, ?) OR body LIKE '楼层%'", (a_name, b_name))
