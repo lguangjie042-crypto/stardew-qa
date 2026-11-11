@@ -753,6 +753,13 @@ _COUNT_TARGETS = (
     ("棍棒", "Weapon", "棍棒", "棍棒"),
     ("弹弓", "Weapon", "弹弓", "弹弓"),
     ("剑", "Weapon", "剑", "剑"),
+    ("春季作物", "Crop", "春季作物", "春季作物"),
+    ("夏季作物", "Crop", "夏季作物", "夏季作物"),
+    ("秋季作物", "Crop", "秋季作物", "秋季作物"),
+    ("冬季作物", "Crop", "冬季作物", "冬季作物"),
+    ("特殊作物", "Crop", "特殊作物", "特殊作物"),
+    ("农作物", "Crop", None, "农作物"),
+    ("作物", "Crop", None, "农作物"),
     ("武器", "Weapon", None, "武器"),
     ("weapon", "Weapon", None, "武器"),
     ("村民", "Villager", None, "村民"),
@@ -795,20 +802,38 @@ def _count_note(fact: dict) -> str:
     )
 
 
-def _fts_match(question: str) -> str:
-    from .wiki import content_terms
+_FTS_STOPS = frozenset({
+    "有", "多少", "几", "种", "把", "个", "条", "只", "吗", "呢", "的", "了",
+    "是", "什么", "哪些", "怎么", "如何", "请问", "可以", "一下", "这个", "那个",
+    "还有", "是否", "吧", "在", "和", "与", "或", "哪", "哪里", "哪儿", "那里",
+    "那儿", "呀", "啊", "嘛", "着", "过", "就", "也", "都", "不", "没", "很",
+    "太", "最", "被", "给", "对", "从", "到", "会", "能", "要", "想", "问",
+    "一共", "共", "how", "many", "there", "are", "the", "of", "a", "an", "is",
+})
 
-    terms: list[str] = []
-    for term in content_terms(question):
-        term = re.sub(r"[^\w\u4e00-\u9fff]", "", term)
-        if len(term) < 2 or term in terms:
+
+def _fts_keywords(question: str) -> list[str]:
+    """用 jieba 把中文问句切开，丢掉「有多少」这类问法词。"""
+    import logging
+
+    import jieba
+
+    jieba.setLogLevel(logging.ERROR)
+    words: list[str] = []
+    for word in jieba.lcut(question or ""):
+        word = re.sub(r"[^\w\u4e00-\u9fff]", "", word).strip()
+        if not word or word.lower() in _FTS_STOPS or word in words:
             continue
-        terms.append(term)
-        if len(terms) >= 4:
+        words.append(word)
+        if len(words) >= 4:
             break
-    if not terms:
-        return ""
-    return " OR ".join(f'"{term}"' for term in terms)
+    return words
+
+
+def _fts_match(question: str) -> str:
+    """「有多少武器？」变成 title:武器 OR body:武器，避免整句去对 FTS。"""
+    parts = [f"title:{word} OR body:{word}" for word in _fts_keywords(question)]
+    return " OR ".join(parts)
 
 
 def _fts_context(question: str) -> tuple[str, list[dict]]:
@@ -854,12 +879,13 @@ def _fts_context(question: str) -> tuple[str, list[dict]]:
 
 
 def _prepare_ollama(question: str) -> tuple[str, str, list[dict]] | None:
-    """数量题把 SQL 计数写进系统提示；其他问题只附 FTS 短摘录。"""
+    """数量题把 SQL 计数写进系统提示，并附上 FTS 命中的短摘录。"""
+    context, sources = _fts_context(question)
     fact = entity_count(question)
     if fact:
-        context = f"{fact['label']}共有 {fact['total']} 个。"
-        return SYSTEM_PROMPT + "\n" + _count_note(fact), context, []
-    context, sources = _fts_context(question)
+        count_line = f"{fact['label']}共有 {fact['total']} 个。"
+        merged = count_line if not context else count_line + "\n\n" + context
+        return SYSTEM_PROMPT + "\n" + _count_note(fact), merged, sources
     if not context.strip():
         return None
     return SYSTEM_PROMPT, context, sources
@@ -925,13 +951,14 @@ def answer_entity_count(question: str, history: list | None = None) -> dict | No
     fact = entity_count(question)
     if not fact:
         return None
-    context = f"{fact['label']}共有 {fact['total']} 个。"
+    plain = f"{fact['label']}共有 {fact['total']} 个。"
+    sources: list[dict] = []
     names = ollama_model_names()
     if names and _model_ready(names, chat_model_name()):
         try:
             prepared = _prepare_ollama(question)
             if prepared:
-                system, context, _sources_unused = prepared
+                system, context, sources = prepared
                 answer = _complete(
                     _chat(),
                     _ANSWER_USER,
@@ -940,10 +967,12 @@ def answer_entity_count(question: str, history: list | None = None) -> dict | No
                     system=system,
                 )
                 if answer and not _is_no_data(answer) and sticks_to_source(answer, context):
-                    return {"answer": answer, "sources": [], "mode": "langchain"}
+                    return {"answer": answer, "sources": sources, "mode": "langchain"}
         except Exception:
             pass
-    return {"answer": context, "sources": [], "mode": "sql"}
+    if not sources:
+        _context, sources = _fts_context(question)
+    return {"answer": plain, "sources": sources, "mode": "sql"}
 
 
 def answer_with_langchain(question: str, history: list | None = None) -> dict | None:

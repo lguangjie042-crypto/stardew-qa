@@ -569,12 +569,14 @@ def fetch_pages(client: httpx.Client, titles: list[str], *, resolve: bool = True
     return pages
 
 
-# 这三页的数据表能拆成物品行。category 用英文，subcategory 沿用维基小节标题。
+# 这些页能拆成可计数的物品行。category 用英文，subcategory 沿用维基小节标题。
 _ENTITY_PAGES = {
     "武器": "Weapon",
     "鱼": "Fish",
     "友谊": "Villager",
+    "农作物": "Crop",
 }
+_CROP_SEASONS = ("春季作物", "夏季作物", "秋季作物", "冬季作物", "特殊作物")
 _ENTITY_SKIP_SECTIONS = {
     "目录", "参考", "历史", "趣闻", "小故障",
     "武器属性", "弹弓弹药", "武器等级和卖出价格",
@@ -718,9 +720,69 @@ def _entity_table(category: str, heading: str, headers: list[str]) -> bool:
     return False
 
 
+def _is_growth_table(inner: str) -> bool:
+    headers, _records = _table_records(inner)
+    if "种子" not in headers:
+        return False
+    return any(any(mark in header for mark in ("收获", "收货", "售价", "阶段")) for header in headers)
+
+
+def _crop_entities(html: str) -> list[dict]:
+    """农作物页没有总数列。每种作物是一节生长表，按季节计数。"""
+    token = re.compile(r"<(/?)(h[1-6]|table)\b([^>]*)>", re.I)
+    season = ""
+    heading = ""
+    depth = 0
+    start = None
+    attrs = ""
+    entities: list[dict] = []
+    seen: set[str] = set()
+    for match in token.finditer(html):
+        closing = match.group(1) == "/"
+        kind = match.group(2).lower()
+        if kind.startswith("h"):
+            if closing or depth:
+                continue
+            close = re.search(r"</h[1-6]>", html[match.end():], re.I)
+            if not close:
+                continue
+            heading = _cell_text(html[match.end(): match.end() + close.start()])
+            if heading in _CROP_SEASONS:
+                season = heading
+            continue
+        if not closing:
+            if depth == 0:
+                start = match.end()
+                attrs = match.group(3)
+            depth += 1
+            continue
+        if not depth:
+            continue
+        depth -= 1
+        if depth != 0 or start is None:
+            continue
+        inner = html[start:match.start()]
+        start = None
+        if not season or heading in _CROP_SEASONS or heading in seen:
+            continue
+        if "wikitable" not in attrs.lower() or not _is_growth_table(inner):
+            continue
+        seen.add(heading)
+        entities.append({
+            "name": heading,
+            "category": "Crop",
+            "subcategory": season,
+            "attributes": json.dumps({"季节": season}, ensure_ascii=False, separators=(",", ":")),
+        })
+    return entities
+
+
 def entities_from_page(page: dict) -> list[dict]:
-    category = _ENTITY_PAGES.get(page.get("title") or "")
+    title = page.get("title") or ""
     html = page.get("html") or ""
+    if title == "农作物":
+        return _crop_entities(html) if html else []
+    category = _ENTITY_PAGES.get(title)
     if not category or not html:
         return []
     entities: list[dict] = []
