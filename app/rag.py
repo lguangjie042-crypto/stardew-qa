@@ -763,6 +763,7 @@ _COUNT_TARGETS = (
     ("武器", "Weapon", None, "武器"),
     ("weapon", "Weapon", None, "武器"),
     ("村民", "Villager", None, "村民"),
+    ("居民", "Villager", None, "居民"),
     ("villager", "Villager", None, "村民"),
     ("鱼", "Fish", None, "鱼"),
     ("fish", "Fish", None, "鱼"),
@@ -813,13 +814,25 @@ _FTS_STOPS = frozenset({
 
 
 def _fts_keywords(question: str) -> list[str]:
-    """用 jieba 把中文问句切开，丢掉「有多少」这类问法词。"""
+    """优先用 Wiki 条目标题拆词；拆不出时再用 jieba，避免「太阳鱼」变成「太阳」+「鱼」。"""
+    from .wiki import content_terms
+
+    words: list[str] = []
+    for term in content_terms(question):
+        term = re.sub(r"[^\w\u4e00-\u9fff]", "", term).strip()
+        if not term or term.lower() in _FTS_STOPS or term in words:
+            continue
+        words.append(term)
+        if len(words) >= 4:
+            return words
+    if words:
+        return words
+
     import logging
 
     import jieba
 
     jieba.setLogLevel(logging.ERROR)
-    words: list[str] = []
     for word in jieba.lcut(question or ""):
         word = re.sub(r"[^\w\u4e00-\u9fff]", "", word).strip()
         if not word or word.lower() in _FTS_STOPS or word in words:

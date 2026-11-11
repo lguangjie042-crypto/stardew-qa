@@ -11,3 +11,4 @@ data/parent_store/
 .idea/
 .vscode/
 tools/
+_wiki_*.txt
