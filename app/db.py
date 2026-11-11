@@ -69,6 +69,14 @@ def init_db() -> None:
             INSERT INTO wiki_fts(rowid, title, body) VALUES (new.pageid, new.title, new.body);
         END;
 
+        CREATE TABLE IF NOT EXISTS wiki_entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            subcategory TEXT,
+            attributes TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,

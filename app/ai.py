@@ -53,6 +53,15 @@ def _ollama_chat_ready() -> bool:
         return False
 
 
+def _entity_count_reply(question: str, history: list | None = None) -> dict | None:
+    try:
+        from .rag import answer_entity_count
+
+        return answer_entity_count(question, history)
+    except Exception:
+        return None
+
+
 def _try_rag(question: str) -> dict | None:
     try:
         from .rag import answer_with_langchain
@@ -67,6 +76,10 @@ def answer_question(question: str, offset: int = 0) -> dict:
     off = _off_topic_reply(question)
     if off:
         return {"answer": off, "sources": [], "mode": "off"}
+
+    counted = _entity_count_reply(question)
+    if counted:
+        return counted
 
     prefer = _prefer_ollama()
     if prefer and _ollama_chat_ready():
@@ -1499,6 +1512,17 @@ def stream_answer(question: str, offset: int = 0, history: list | None = None):
     if off:
         yield {"kind": "meta", "mode": "off", "sources": []}
         yield {"kind": "delta", "text": off}
+        yield {"kind": "done"}
+        return
+
+    counted = _entity_count_reply(question, history)
+    if counted:
+        yield {
+            "kind": "meta",
+            "mode": counted.get("mode") or "sql",
+            "sources": counted.get("sources") or [],
+        }
+        yield {"kind": "delta", "text": counted.get("answer") or ""}
         yield {"kind": "done"}
         return
 

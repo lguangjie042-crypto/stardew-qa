@@ -739,11 +739,137 @@ def _chat():
     )
 
 
-def _complete(model, human: str, variables: dict, num_predict: int) -> str:
+_COUNT_INTENT = re.compile(r"多少种|有多少|有几[种把个条只]|几[种把个条只]|how many|number of", re.I)
+_PRICE_INTENT = re.compile(r"多少钱|多少金|售价|价格|多贵|卖多少")
+# 长词放前面，避免「传说鱼类」被「鱼」截走。
+_COUNT_TARGETS = (
+    ("无法获得的武器", "Weapon", "无法获得的武器", "无法获得的武器"),
+    ("传说鱼类二代", "Fish", "传说鱼类二代", "传说鱼类二代"),
+    ("传说鱼", "Fish", "传说鱼类", "传说鱼类"),
+    ("蟹笼", "Fish", "蟹笼鱼类", "蟹笼鱼类"),
+    ("夜市鱼", "Fish", "夜市鱼", "夜市鱼"),
+    ("常规鱼", "Fish", "常规鱼类", "常规鱼类"),
+    ("匕首", "Weapon", "匕首", "匕首"),
+    ("棍棒", "Weapon", "棍棒", "棍棒"),
+    ("弹弓", "Weapon", "弹弓", "弹弓"),
+    ("剑", "Weapon", "剑", "剑"),
+    ("武器", "Weapon", None, "武器"),
+    ("weapon", "Weapon", None, "武器"),
+    ("村民", "Villager", None, "村民"),
+    ("villager", "Villager", None, "村民"),
+    ("鱼", "Fish", None, "鱼"),
+    ("fish", "Fish", None, "鱼"),
+)
+
+
+def entity_count(question: str) -> dict | None:
+    """数量题对应 wiki_entities 的精确计数。售价题不算数量题。"""
+    text = (question or "").strip()
+    if not text or not _COUNT_INTENT.search(text) or _PRICE_INTENT.search(text):
+        return None
+    folded = text.lower()
+    for needle, category, subcategory, label in _COUNT_TARGETS:
+        if needle.lower() not in folded:
+            continue
+        sql = "SELECT COUNT(*) FROM wiki_entities WHERE category = ?"
+        args: list[str] = [category]
+        if subcategory:
+            sql += " AND subcategory = ?"
+            args.append(subcategory)
+        conn = connect()
+        total = conn.execute(sql, args).fetchone()[0]
+        conn.close()
+        return {
+            "label": label,
+            "total": int(total),
+            "category": category,
+            "subcategory": subcategory,
+        }
+    return None
+
+
+def _count_note(fact: dict) -> str:
+    return (
+        f"已核实的数量：{fact['label']}共有 {fact['total']} 个。"
+        "回答数量时第一句必须使用这个数字，不要重新数，也不要改成别的数。"
+    )
+
+
+def _fts_match(question: str) -> str:
+    from .wiki import content_terms
+
+    terms: list[str] = []
+    for term in content_terms(question):
+        term = re.sub(r"[^\w\u4e00-\u9fff]", "", term)
+        if len(term) < 2 or term in terms:
+            continue
+        terms.append(term)
+        if len(terms) >= 4:
+            break
+    if not terms:
+        return ""
+    return " OR ".join(f'"{term}"' for term in terms)
+
+
+def _fts_context(question: str) -> tuple[str, list[dict]]:
+    """FTS5 只取命中附近的短摘录，不把整页正文送进模型。"""
+    match = _fts_match(question)
+    if not match:
+        return "", []
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT wiki_pages.pageid AS pageid,
+                   COALESCE(NULLIF(wiki_pages.display_title, ''), wiki_pages.title) AS title,
+                   wiki_pages.url AS url,
+                   snippet(wiki_fts, 1, '', '', '…', 32) AS snip
+            FROM wiki_fts
+            JOIN wiki_pages ON wiki_pages.pageid = wiki_fts.rowid
+            WHERE wiki_fts MATCH ?
+            ORDER BY rank
+            LIMIT 3
+            """,
+            (match,),
+        ).fetchall()
+    except Exception:
+        conn.close()
+        return "", []
+    conn.close()
+    blocks: list[str] = []
+    sources: list[dict] = []
+    seen: set[int] = set()
+    for index, row in enumerate(rows, start=1):
+        snippet = re.sub(r"\s+", " ", row["snip"] or "").strip()
+        if len(snippet) > 180:
+            snippet = snippet[:180].rstrip() + "…"
+        if not snippet:
+            continue
+        blocks.append(f"【资料 {index}】标题：{row['title']}\n{snippet}")
+        pageid = int(row["pageid"])
+        if pageid not in seen:
+            seen.add(pageid)
+            sources.append({"title": row["title"], "url": row["url"] or "", "pageid": pageid})
+    return "\n\n".join(blocks), sources
+
+
+def _prepare_ollama(question: str) -> tuple[str, str, list[dict]] | None:
+    """数量题把 SQL 计数写进系统提示；其他问题只附 FTS 短摘录。"""
+    fact = entity_count(question)
+    if fact:
+        context = f"{fact['label']}共有 {fact['total']} 个。"
+        return SYSTEM_PROMPT + "\n" + _count_note(fact), context, []
+    context, sources = _fts_context(question)
+    if not context.strip():
+        return None
+    return SYSTEM_PROMPT, context, sources
+
+
+def _complete(model, human: str, variables: dict, num_predict: int, system: str = SYSTEM_PROMPT) -> str:
     model.num_predict = num_predict
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", SYSTEM_PROMPT),
+            ("system", system),
             ("human", human),
         ]
     )
@@ -794,37 +920,47 @@ def _merge_parents(question: str, retrieved: list[Document]) -> list[Document]:
             break
     return chosen
 
-def answer_with_langchain(question: str, history: list | None = None) -> dict | None:
-    """检索子段 → 取出相关原文 → 一次生成答案。"""
+def answer_entity_count(question: str, history: list | None = None) -> dict | None:
+    """数量题先查表。模型可用时把精确数字写进系统提示，否则直接返回这个数字。"""
+    fact = entity_count(question)
+    if not fact:
+        return None
+    context = f"{fact['label']}共有 {fact['total']} 个。"
     names = ollama_model_names()
-    if names is None:
-        return None
-    if not _model_ready(names, embed_model_name()) or not _model_ready(names, chat_model_name()):
-        return None
-    if not index_is_current():
-        if _build_error:
-            return None
-        _kick_build()
-        return {
-            "answer": "小谷正在把 Wiki 全文写入检索库，写完再答，避免只看到半截资料。请过几分钟再问一次。",
-            "sources": [],
-            "mode": "langchain",
-        }
+    if names and _model_ready(names, chat_model_name()):
+        try:
+            prepared = _prepare_ollama(question)
+            if prepared:
+                system, context, _sources_unused = prepared
+                answer = _complete(
+                    _chat(),
+                    _ANSWER_USER,
+                    {"question": question, "context": context, "history": history_block(history)},
+                    num_predict=180,
+                    system=system,
+                )
+                if answer and not _is_no_data(answer) and sticks_to_source(answer, context):
+                    return {"answer": answer, "sources": [], "mode": "langchain"}
+        except Exception:
+            pass
+    return {"answer": context, "sources": [], "mode": "sql"}
 
-    retriever = make_retriever(_vectorstore(), _docstore())
-    parents = _merge_parents(question, list(retriever.invoke(question)))
-    sources = _sources(parents)
-    if not parents:
-        return None
 
-    context = _format_parents(parents, question)
-    if not context.strip():
+def answer_with_langchain(question: str, history: list | None = None) -> dict | None:
+    """数量题注入精确计数；其余问题只用 FTS 短摘录，再交给模型写答案。"""
+    names = ollama_model_names()
+    if names is None or not _model_ready(names, chat_model_name()):
         return None
+    prepared = _prepare_ollama(question)
+    if not prepared:
+        return None
+    system, context, sources = prepared
     answer = _complete(
         _chat(),
         _ANSWER_USER,
         {"question": question, "context": context, "history": history_block(history)},
         num_predict=260,
+        system=system,
     )
     if not answer or _is_no_data(answer) or not sticks_to_source(answer, context):
         return None
@@ -834,33 +970,17 @@ def answer_with_langchain(question: str, history: list | None = None) -> dict | 
 def stream_answer_with_langchain(question: str, history: list | None = None):
     """流式版 answer_with_langchain。
 
-    返回 None（模型不可用/检索没命中）、dict（正在建索引的提示）
-    或 (sources, gen, holder)：gen 逐块产出答案文本，遍历结束后
-    holder["ok"] / holder["text"] 与同步版的校验结果一致。"""
+    返回 None（模型不可用或没有摘录），或 (sources, gen, holder)。
+    gen 逐块产出答案文本，遍历结束后 holder["ok"] / holder["text"]
+    与同步版的校验结果一致。"""
     names = ollama_model_names()
-    if names is None:
-        return None
-    if not _model_ready(names, embed_model_name()) or not _model_ready(names, chat_model_name()):
-        return None
-    if not index_is_current():
-        if _build_error:
-            return None
-        _kick_build()
-        return {
-            "answer": "小谷正在把 Wiki 全文写入检索库，写完再答，避免只看到半截资料。请过几分钟再问一次。",
-            "sources": [],
-            "mode": "langchain",
-        }
-
-    retriever = make_retriever(_vectorstore(), _docstore())
-    parents = _merge_parents(question, list(retriever.invoke(question)))
-    sources = _sources(parents)
-    if not parents:
+    if names is None or not _model_ready(names, chat_model_name()):
         return None
 
-    context = _format_parents(parents, question)
-    if not context.strip():
+    prepared = _prepare_ollama(question)
+    if not prepared:
         return None
+    system, context, sources = prepared
 
     from langchain_core.output_parsers import StrOutputParser
     from langchain_core.prompts import ChatPromptTemplate
@@ -868,7 +988,7 @@ def stream_answer_with_langchain(question: str, history: list | None = None):
     model = _chat()
     model.num_predict = 260
     chain = (
-        ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT), ("human", _ANSWER_USER)])
+        ChatPromptTemplate.from_messages([("system", system), ("human", _ANSWER_USER)])
         | model
         | StrOutputParser()
     )

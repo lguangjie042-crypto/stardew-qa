@@ -569,6 +569,208 @@ def fetch_pages(client: httpx.Client, titles: list[str], *, resolve: bool = True
     return pages
 
 
+# 这三页的数据表能拆成物品行。category 用英文，subcategory 沿用维基小节标题。
+_ENTITY_PAGES = {
+    "武器": "Weapon",
+    "鱼": "Fish",
+    "友谊": "Villager",
+}
+_ENTITY_SKIP_SECTIONS = {
+    "目录", "参考", "历史", "趣闻", "小故障",
+    "武器属性", "弹弓弹药", "武器等级和卖出价格",
+    "食谱", "生鱼片利润", "钓鱼小游戏", "运动模式",
+}
+_SKIP_COLUMNS = {"图片", "图像"}
+
+
+def _cell_text(fragment: str) -> str:
+    fragment = re.sub(
+        r"<span\b[^>]*display\s*:\s*none[^>]*>.*?</span>",
+        " ",
+        fragment,
+        flags=re.I | re.S,
+    )
+    fragment = re.sub(r"<br\s*/?>", " ", fragment, flags=re.I)
+    fragment = re.sub(r"<[^>]+>", " ", fragment)
+    fragment = html_lib.unescape(fragment).replace("\xa0", " ")
+    return re.sub(r"\s+", " ", fragment).strip()
+
+
+def _top_level_pieces(html: str, tag: str) -> list[tuple[str, str]]:
+    """返回某一标签的最外层片段，单元格里的嵌套表格不会被拆开。"""
+    pattern = re.compile(rf"<(/?){tag}\b([^>]*)>", re.I)
+    depth = 0
+    start = None
+    attrs = ""
+    pieces: list[tuple[str, str]] = []
+    for match in pattern.finditer(html):
+        closing = match.group(1) == "/"
+        if not closing:
+            if depth == 0:
+                start = match.end()
+                attrs = match.group(2)
+            depth += 1
+        elif depth:
+            depth -= 1
+            if depth == 0 and start is not None:
+                pieces.append((attrs, html[start:match.start()]))
+                start = None
+    return pieces
+
+
+def _headed_tables(html: str) -> list[tuple[str, str, str]]:
+    token = re.compile(r"<(/?)(h[1-6]|table)\b([^>]*)>", re.I)
+    heading = ""
+    depth = 0
+    start = None
+    attrs = ""
+    found: list[tuple[str, str, str]] = []
+    for match in token.finditer(html):
+        closing = match.group(1) == "/"
+        kind = match.group(2).lower()
+        if kind.startswith("h"):
+            if closing or depth:
+                continue
+            close = re.search(r"</h[1-6]>", html[match.end():], re.I)
+            if close:
+                heading = _cell_text(html[match.end(): match.end() + close.start()])
+            continue
+        if not closing:
+            if depth == 0:
+                start = match.end()
+                attrs = match.group(3)
+            depth += 1
+        elif depth:
+            depth -= 1
+            if depth == 0 and start is not None:
+                found.append((heading, attrs, html[start:match.start()]))
+                start = None
+    return found
+
+
+def _row_cells(row_html: str) -> list[tuple[str, str]]:
+    token = re.compile(r"<(/?)(th|td|table)\b([^>]*)>", re.I)
+    table_depth = 0
+    cell_depth = 0
+    start = None
+    kind = ""
+    cells: list[tuple[str, str]] = []
+    for match in token.finditer(row_html):
+        closing = match.group(1) == "/"
+        tag = match.group(2).lower()
+        if tag == "table":
+            if not closing:
+                table_depth += 1
+            elif table_depth:
+                table_depth -= 1
+            continue
+        if table_depth:
+            continue
+        if not closing:
+            if cell_depth == 0:
+                start = match.end()
+                kind = tag
+            cell_depth += 1
+        elif cell_depth:
+            cell_depth -= 1
+            if cell_depth == 0 and start is not None:
+                cells.append((kind, _cell_text(row_html[start:match.start()])))
+                start = None
+    return cells
+
+
+def _table_records(inner: str) -> tuple[list[str], list[dict[str, str]]]:
+    headers: list[str] = []
+    records: list[dict[str, str]] = []
+    for _attrs, row_html in _top_level_pieces(inner, "tr"):
+        cells = _row_cells(row_html)
+        if not cells:
+            continue
+        texts = [text for _tag, text in cells]
+        tags = {tag for tag, _text in cells}
+        if not headers and tags == {"th"}:
+            headers = texts
+            continue
+        if not headers:
+            continue
+        row: dict[str, str] = {}
+        for index, text in enumerate(texts):
+            if index >= len(headers) or not text:
+                continue
+            header = headers[index]
+            if not header or header in _SKIP_COLUMNS:
+                continue
+            row[header] = text
+        if row:
+            records.append(row)
+    return headers, records
+
+
+def _entity_table(category: str, heading: str, headers: list[str]) -> bool:
+    if heading in _ENTITY_SKIP_SECTIONS:
+        return False
+    if category == "Weapon":
+        return "名称" in headers and "伤害" in headers
+    if category == "Fish":
+        return "名称" in headers and bool({"价格", "售出价格"} & set(headers))
+    if category == "Villager":
+        return "村民" in headers and "最爱" in headers
+    return False
+
+
+def entities_from_page(page: dict) -> list[dict]:
+    category = _ENTITY_PAGES.get(page.get("title") or "")
+    html = page.get("html") or ""
+    if not category or not html:
+        return []
+    entities: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for heading, attrs, inner in _headed_tables(html):
+        if "wikitable" not in attrs.lower():
+            continue
+        headers, records = _table_records(inner)
+        if not _entity_table(category, heading, headers):
+            continue
+        name_header = "村民" if category == "Villager" else "名称"
+        subcategory = None if category == "Villager" else (heading or None)
+        for record in records:
+            name = record.get(name_header, "").strip()
+            if not name or name == name_header or len(name) > 40:
+                continue
+            key = (subcategory or "", name)
+            if key in seen:
+                continue
+            seen.add(key)
+            attributes = {key: value for key, value in record.items() if key != name_header}
+            entities.append({
+                "name": name,
+                "category": category,
+                "subcategory": subcategory,
+                "attributes": json.dumps(attributes, ensure_ascii=False, separators=(",", ":")) if attributes else None,
+            })
+    return entities
+
+
+def _store_page_entities(conn, pages: list[dict]) -> int:
+    grouped: dict[str, list[dict]] = {}
+    for page in pages:
+        rows = entities_from_page(page)
+        if rows:
+            grouped[rows[0]["category"]] = rows
+    stored = 0
+    for category, rows in grouped.items():
+        conn.execute("DELETE FROM wiki_entities WHERE category = ?", (category,))
+        conn.executemany(
+            """
+            INSERT INTO wiki_entities (name, category, subcategory, attributes)
+            VALUES (:name, :category, :subcategory, :attributes)
+            """,
+            rows,
+        )
+        stored += len(rows)
+    return stored
+
+
 def upsert_pages(pages: list[dict]) -> int:
     conn = connect()
     for p in pages:
@@ -589,6 +791,7 @@ def upsert_pages(pages: list[dict]) -> int:
             """,
             p,
         )
+    _store_page_entities(conn, pages)
     conn.commit()
     count = conn.execute("SELECT COUNT(*) FROM wiki_pages").fetchone()[0]
     conn.close()
