@@ -40,3 +40,15 @@
   {% endif %}
 </div>
 {% endmacro %}
+{% macro own_post(post_id, next_url) -%}
+data-own="post" data-url="/forum/{{ post_id }}/delete" data-confirm="删除这篇帖子？评论、点赞和收藏会一起消失。" data-next="{{ next_url }}"
+{%- endmacro %}
+{% macro own_comment(post_id, comment_id) -%}
+data-own="comment" data-comment="{{ comment_id }}" data-url="/forum/{{ post_id }}/comments/{{ comment_id }}/delete"
+{%- endmacro %}
+{% macro own_save(post_id) -%}
+data-own="save" data-post="{{ post_id }}" data-url="/forum/{{ post_id }}/unsave"
+{%- endmacro %}
+{% macro own_mine(post_id) -%}
+data-own="mine" data-post="{{ post_id }}" data-url="/forum/{{ post_id }}/delete" data-next="/me?deleted=1"
+{%- endmacro %}

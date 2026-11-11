@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% from "bits.html" import actions with context %}
+{% from "bits.html" import actions, own_post, own_comment with context %}
 {% block title %}{{ post.title }} · 论坛{% endblock %}
 {% block content %}
 {% macro thread_node(c, depth) %}
 <div class="cnode" style="--d: {{ depth }}">
-  <div class="cmt-main">
+  <div class="cmt-main" {% if user and c.user_id == user.id %}{{ own_comment(post.id, c.id) }}{% endif %}>
     {% if c.user_id %}
     <a class="avatar-link" href="/u/{{ '%04d'|format(c.user_id) }}" title="打开主页">{{ avatar_emoji(c.avatar) }}</a>
     {% else %}
@@ -29,8 +29,8 @@
 </div>
 {% endmacro %}
 <article class="card article post-line">
-  <div class="post-main">
-    <p class="crumb"><a href="/forum">论坛</a> / {{ post.title }}</p>
+  <div class="post-main" {% if user and post.user_id == user.id %}{{ own_post(post.id, "/forum") }}{% endif %}>
+    <p class="crumb post-crumb"><span><a href="/forum">论坛</a> / {{ post.title }}</span>{% if back %}<a class="btn post-return" href="{{ back }}">返回</a>{% endif %}</p>
     <h1>{{ post.title }}</h1>
     <p class="muted">
       {% if post.user_id %}
@@ -55,7 +55,7 @@
   <h2>回复</h2>
   {% for c in roots %}
   <div class="cmt">
-    <div class="cmt-main">
+    <div class="cmt-main" {% if user and c.user_id == user.id %}{{ own_comment(post.id, c.id) }}{% endif %}>
       {% if c.user_id %}
       <a class="avatar-link" href="/u/{{ '%04d'|format(c.user_id) }}" title="打开主页">{{ avatar_emoji(c.avatar) }}</a>
       {% else %}

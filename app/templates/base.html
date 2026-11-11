@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}星露谷问答社{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=100">
+  <link rel="stylesheet" href="/static/style.css?v=110">
   {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -29,7 +29,7 @@
   <main class="wrap">
     {% block content %}{% endblock %}
   </main>
-  {% if notice == "已分享到私聊" %}
+  {% if notice == "已分享到私聊" or shared %}
   <p class="toast" id="share-toast">已分享到私聊</p>
   <script>
     setTimeout(function () {
@@ -52,6 +52,7 @@
   <script src="/static/bgm.js?v=3"></script>
   {% endif %}
   <script src="/static/nav.js?v=15"></script>
+  <script src="/static/own.js?v=5"></script>
   <script src="/static/ask.js?v=8"></script>
   <footer class="foot">
     条目来自 <a href="https://zh.stardewvalleywiki.com/" target="_blank" rel="noreferrer">星露谷物语官方中文 Wiki</a>

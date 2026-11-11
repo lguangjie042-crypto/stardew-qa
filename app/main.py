@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -195,6 +195,16 @@ def safe_next(url: str, fallback: str) -> str:
     if url.startswith("/") and not url.startswith("//"):
         return url
     return fallback
+
+
+def wants_stay(request: Request) -> bool:
+    return request.headers.get("x-stay") == "1"
+
+
+def owns(user, owner_id) -> bool:
+    if not user or owner_id is None:
+        return False
+    return int(owner_id) == int(user["id"])
 
 
 def cabinet(user_id: int):
@@ -466,13 +476,14 @@ def load_post(conn, post_id: int, viewer_id: int | None):
 
 
 @app.get("/forum/{post_id}")
-def forum_post(request: Request, post_id: int, thread: int = 0, shared: str = ""):
+def forum_post(request: Request, post_id: int, thread: int = 0, shared: str = "", back: str = ""):
     user = current_user(request)
     conn = connect()
     post = load_post(conn, post_id, user["id"] if user else None)
     if not post:
         conn.close()
         raise HTTPException(404, "帖子不存在")
+    back_url = back if back.startswith("/") and not back.startswith("//") else ""
     comments = conn.execute(
         """
         SELECT c.*, COALESCE(u.username, c.nickname) AS username,
@@ -493,7 +504,8 @@ def forum_post(request: Request, post_id: int, thread: int = 0, shared: str = ""
             post=post,
             roots=comment_forest(comments),
             peers=peers,
-            next_url=f"/forum/{post_id}",
+            next_url=f"/forum/{post_id}" + (f"?back={quote(back_url, safe='')}" if back_url else ""),
+            back=back_url,
             open_thread=thread,
             notice="已分享到私聊" if shared else "",
         ),
@@ -554,11 +566,15 @@ def toggle_save(request: Request, post_id: int, next: str = Form("/forum")):
 
 @app.post("/forum/{post_id}/share")
 def share_post(request: Request, post_id: int, to: int = Form(...), next: str = Form("/forum")):
-    redirect = login_required(request, f"/forum/{post_id}")
-    if redirect:
-        return redirect
+    stay = wants_stay(request)
     user = current_user(request)
+    if not user:
+        if stay:
+            return JSONResponse({"ok": False}, status_code=401)
+        return RedirectResponse(f"/me?next=/forum/{post_id}", status_code=303)
     if to == user["id"]:
+        if stay:
+            return JSONResponse({"ok": False})
         return RedirectResponse(safe_next(next, "/forum"), status_code=303)
     conn = connect()
     post = conn.execute("SELECT id, title FROM posts WHERE id=?", (post_id,)).fetchone()
@@ -577,14 +593,16 @@ def share_post(request: Request, post_id: int, to: int = Form(...), next: str = 
     if peer and talked:
         conn.execute(
             """
-            INSERT INTO messages(sender_id, recipient_id, body, post_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO messages(sender_id, recipient_id, body, post_id, created_at, seen)
+            VALUES (?, ?, ?, ?, ?, 0)
             """,
             (user["id"], to, f"分享帖子：{post['title']}", post_id, now_iso()),
         )
         conn.commit()
         sent = True
     conn.close()
+    if stay:
+        return JSONResponse({"ok": sent})
     dest = safe_next(next, f"/forum/{post_id}")
     if not sent:
         return RedirectResponse(dest, status_code=303)
@@ -685,46 +703,124 @@ def delete_comment_tree(conn, post_id: int, comment_id: int) -> bool:
 
 
 @app.post("/forum/{post_id}/delete")
-def remove_post(request: Request, post_id: int):
+def remove_post(request: Request, post_id: int, next: str = Form("")):
+    stay = wants_stay(request)
     user = current_user(request)
     if not user:
+        if stay:
+            return JSONResponse({"ok": False}, status_code=401)
         return RedirectResponse(f"/me?next=/forum/{post_id}", status_code=303)
-    if not is_admin(user):
-        return RedirectResponse(f"/forum/{post_id}", status_code=303)
     conn = connect()
-    if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
+    row = conn.execute("SELECT id, user_id FROM posts WHERE id=?", (post_id,)).fetchone()
+    if not row:
         conn.close()
         raise HTTPException(404, "帖子不存在")
+    if not is_admin(user) and not owns(user, row["user_id"]):
+        conn.close()
+        if stay:
+            return JSONResponse({"ok": False})
+        return RedirectResponse(f"/forum/{post_id}", status_code=303)
     conn.execute("UPDATE messages SET post_id=NULL WHERE post_id=?", (post_id,))
     conn.execute("DELETE FROM posts WHERE id=?", (post_id,))
     conn.commit()
     conn.close()
-    return RedirectResponse("/forum", status_code=303)
+    if stay:
+        return JSONResponse({"ok": True})
+    return RedirectResponse(safe_next(next, "/forum") if next else "/forum", status_code=303)
 
 
 @app.post("/forum/{post_id}/comments/{comment_id}/delete")
 def remove_comment(request: Request, post_id: int, comment_id: int):
+    stay = wants_stay(request)
     user = current_user(request)
     if not user:
+        if stay:
+            return JSONResponse({"ok": False}, status_code=401)
         return RedirectResponse(f"/me?next=/forum/{post_id}", status_code=303)
-    if not is_admin(user):
-        return RedirectResponse(f"/forum/{post_id}", status_code=303)
     conn = connect()
+    row = conn.execute(
+        "SELECT id, user_id FROM comments WHERE id=? AND post_id=?",
+        (comment_id, post_id),
+    ).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "评论不存在")
+    if not is_admin(user) and not owns(user, row["user_id"]):
+        conn.close()
+        if stay:
+            return JSONResponse({"ok": False})
+        return RedirectResponse(f"/forum/{post_id}", status_code=303)
     if not delete_comment_tree(conn, post_id, comment_id):
         conn.close()
         raise HTTPException(404, "评论不存在")
     conn.commit()
     conn.close()
+    if stay:
+        return JSONResponse({"ok": True})
     return RedirectResponse(f"/forum/{post_id}", status_code=303)
 
 
+@app.post("/forum/{post_id}/unsave")
+def unsave_post(request: Request, post_id: int):
+    stay = wants_stay(request)
+    user = current_user(request)
+    if not user:
+        if stay:
+            return JSONResponse({"ok": False}, status_code=401)
+        return RedirectResponse("/me?next=/me", status_code=303)
+    conn = connect()
+    cur = conn.execute(
+        "DELETE FROM post_saves WHERE user_id=? AND post_id=?",
+        (user["id"], post_id),
+    )
+    removed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    if stay:
+        return JSONResponse({"ok": removed})
+    if not removed:
+        return RedirectResponse("/me", status_code=303)
+    return RedirectResponse("/me?removed=1", status_code=303)
+
+
 @app.get("/me")
-def me_page(request: Request, next: str = "/", error: str = "", notice: str = ""):
+def me_page(
+    request: Request,
+    next: str = "/",
+    error: str = "",
+    notice: str = "",
+    removed: str = "",
+    deleted: str = "",
+    shared: str = "",
+):
     user = current_user(request)
     posts, favorites = cabinet(user["id"]) if user else ([], [])
+    share_peers = []
+    if user:
+        conn = connect()
+        share_peers = [
+            {
+                "id": int(row["id"]),
+                "name": row["username"],
+                "avatar": avatar_emoji(row["avatar"]),
+            }
+            for row in chat_peers(conn, user["id"])
+        ]
+        conn.close()
     return templates.TemplateResponse(
         "me.html",
-        ctx(request, posts=posts, favorites=favorites, next_url=next, error=error, notice=notice),
+        ctx(
+            request,
+            posts=posts,
+            favorites=favorites,
+            next_url=next,
+            error=error,
+            notice=notice,
+            removed=removed == "1",
+            deleted=deleted == "1",
+            shared=shared == "1",
+            share_peers=share_peers,
+        ),
     )
 
 
@@ -874,10 +970,144 @@ def public_profile(request: Request, tag: str):
     )
 
 
+def activity_notices(conn, user_id: int):
+    mention = re.compile(rf"(?<!\d)@(?:{int(user_id):04d}|{int(user_id)})(?!\d)")
+    comments = conn.execute(
+        """
+        SELECT c.id, c.post_id, c.body, c.created_at, c.parent_id,
+               p.title AS title, p.user_id AS post_owner,
+               COALESCE(u.username, c.nickname) AS name,
+               COALESCE(u.avatar, 'farmer') AS avatar,
+               parent.user_id AS parent_owner
+        FROM comments c
+        JOIN posts p ON p.id = c.post_id
+        LEFT JOIN users u ON u.id = c.user_id
+        LEFT JOIN comments parent ON parent.id = c.parent_id
+        WHERE c.user_id IS NULL OR c.user_id != ?
+        ORDER BY c.id DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    items = []
+    for row in comments:
+        body = row["body"] or ""
+        mentioned = bool(mention.search(body))
+        on_my_post = row["parent_id"] is None and row["post_owner"] == user_id
+        reply_to_me = row["parent_owner"] is not None and row["parent_owner"] == user_id
+        if not (mentioned or on_my_post or reply_to_me):
+            continue
+        matched = REPLY_MARK.match(body.strip())
+        spoken = matched.group(2).strip() if matched else body.strip()
+        items.append(
+            {
+                "name": row["name"],
+                "avatar": row["avatar"],
+                "line": "@了你" if mentioned else spoken,
+                "created_at": row["created_at"],
+                "post_id": row["post_id"],
+                "title": row["title"],
+                "thread": comment_root_id(conn, row["id"]),
+            }
+        )
+    posts = conn.execute(
+        """
+        SELECT p.id, p.title, p.body, p.created_at,
+               COALESCE(u.username, p.nickname) AS name,
+               COALESCE(u.avatar, 'farmer') AS avatar
+        FROM posts p
+        LEFT JOIN users u ON u.id = p.user_id
+        WHERE p.user_id IS NULL OR p.user_id != ?
+        ORDER BY p.id DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    for row in posts:
+        if not mention.search(row["body"] or ""):
+            continue
+        items.append(
+            {
+                "name": row["name"],
+                "avatar": row["avatar"],
+                "line": "@了你",
+                "created_at": row["created_at"],
+                "post_id": row["id"],
+                "title": row["title"],
+                "thread": None,
+            }
+        )
+    items.sort(key=lambda item: item["created_at"] or "", reverse=True)
+    return items
+
+
+def _stamp_unread(conn, table: str, user_id: int, items) -> bool:
+    row = conn.execute(
+        f"SELECT read_at FROM {table} WHERE user_id=?",
+        (user_id,),
+    ).fetchone()
+    if row is None:
+        return bool(items)
+    stamp = row["read_at"] or ""
+    return any((item["created_at"] or "") > stamp for item in items)
+
+
+def _mark_stamp(conn, table: str, user_id: int) -> None:
+    conn.execute(
+        f"""
+        INSERT INTO {table}(user_id, read_at) VALUES (?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET read_at=excluded.read_at
+        """,
+        (user_id, now_iso()),
+    )
+    conn.commit()
+
+
+def notices_unread(conn, user_id: int) -> bool:
+    return _stamp_unread(conn, "notice_reads", user_id, activity_notices(conn, user_id))
+
+
+def mark_notices_read(conn, user_id: int) -> None:
+    _mark_stamp(conn, "notice_reads", user_id)
+
+
+def like_notices(conn, user_id: int):
+    rows = conn.execute(
+        """
+        SELECT l.created_at, l.post_id, p.title,
+               u.username AS name, COALESCE(u.avatar, 'farmer') AS avatar
+        FROM post_likes l
+        JOIN posts p ON p.id = l.post_id
+        JOIN users u ON u.id = l.user_id
+        WHERE p.user_id = ? AND l.user_id != ?
+        ORDER BY l.created_at DESC
+        """,
+        (user_id, user_id),
+    ).fetchall()
+    return [
+        {
+            "name": row["name"],
+            "avatar": row["avatar"],
+            "line": "赞了你",
+            "created_at": row["created_at"],
+            "post_id": row["post_id"],
+            "title": row["title"],
+            "thread": None,
+        }
+        for row in rows
+    ]
+
+
+def likes_unread(conn, user_id: int) -> bool:
+    return _stamp_unread(conn, "like_reads", user_id, like_notices(conn, user_id))
+
+
+def mark_likes_read(conn, user_id: int) -> None:
+    _mark_stamp(conn, "like_reads", user_id)
+
+
 def conversations(conn, user_id: int):
     rows = conn.execute(
         """
-        SELECT m.id, m.sender_id, m.recipient_id, m.body, m.post_id, m.created_at,
+        SELECT m.id, m.sender_id, m.recipient_id, m.body, m.post_id, m.created_at, m.seen,
                u.id AS peer_id, u.username AS peer_name, COALESCE(u.avatar, 'farmer') AS peer_avatar
         FROM messages m
         JOIN users u ON u.id = CASE WHEN m.sender_id = ? THEN m.recipient_id ELSE m.sender_id END
@@ -886,14 +1116,55 @@ def conversations(conn, user_id: int):
         """,
         (user_id, user_id, user_id),
     ).fetchall()
+    fresh = {
+        row["peer_id"]
+        for row in rows
+        if row["sender_id"] != user_id and int(row["seen"] or 0) == 0
+    }
     seen = set()
     items = []
     for row in rows:
         if row["peer_id"] in seen:
             continue
         seen.add(row["peer_id"])
-        items.append(row)
+        item = dict(row)
+        item["unread"] = row["peer_id"] in fresh
+        items.append(item)
     return items
+
+
+@app.get("/notices")
+def notices_page(request: Request, next: str = "/chat"):
+    back = safe_next(next, "/chat")
+    redirect = login_required(request, f"/notices?next={quote(back)}")
+    if redirect:
+        return redirect
+    user = current_user(request)
+    conn = connect()
+    items = activity_notices(conn, user["id"])
+    mark_notices_read(conn, user["id"])
+    conn.close()
+    return templates.TemplateResponse(
+        "notices.html",
+        ctx(request, items=items, back=back, heading="消息", empty="还没有消息。", list_path="/notices"),
+    )
+
+
+@app.get("/likes")
+def likes_page(request: Request, next: str = "/chat"):
+    back = safe_next(next, "/chat")
+    redirect = login_required(request, f"/likes?next={quote(back)}")
+    if redirect:
+        return redirect
+    user = current_user(request)
+    conn = connect()
+    items = like_notices(conn, user["id"])
+    mark_likes_read(conn, user["id"])
+    conn.close()
+    return templates.TemplateResponse(
+        "notices.html",
+        ctx(request, items=items, back=back, heading="点赞", empty="还没有点赞。", list_path="/likes"),
+    )
 
 
 @app.get("/chat")
@@ -904,8 +1175,13 @@ def chat_home(request: Request):
     user = current_user(request)
     conn = connect()
     threads = conversations(conn, user["id"])
+    unread = notices_unread(conn, user["id"])
+    liked = likes_unread(conn, user["id"])
     conn.close()
-    return templates.TemplateResponse("chat.html", ctx(request, threads=threads, peer=None, messages=[]))
+    return templates.TemplateResponse(
+        "chat.html",
+        ctx(request, threads=threads, peer=None, messages=[], unread=unread, likes_unread=liked),
+    )
 
 
 @app.get("/chat/{peer_id}")
@@ -924,6 +1200,11 @@ def chat_thread(request: Request, peer_id: int):
     if not peer:
         conn.close()
         raise HTTPException(404, "没有这个账号")
+    conn.execute(
+        "UPDATE messages SET seen=1 WHERE recipient_id=? AND sender_id=?",
+        (user["id"], peer_id),
+    )
+    conn.commit()
     messages = conn.execute(
         """
         SELECT m.*, p.title AS post_title
@@ -935,10 +1216,12 @@ def chat_thread(request: Request, peer_id: int):
         (user["id"], peer_id, peer_id, user["id"]),
     ).fetchall()
     threads = conversations(conn, user["id"])
+    unread = notices_unread(conn, user["id"])
+    liked = likes_unread(conn, user["id"])
     conn.close()
     return templates.TemplateResponse(
         "chat.html",
-        ctx(request, threads=threads, peer=peer, messages=messages),
+        ctx(request, threads=threads, peer=peer, messages=messages, unread=unread, likes_unread=liked),
     )
 
 
@@ -958,8 +1241,8 @@ def chat_send(request: Request, peer_id: int, body: str = Form(...)):
         raise HTTPException(404, "没有这个账号")
     conn.execute(
         """
-        INSERT INTO messages(sender_id, recipient_id, body, post_id, created_at)
-        VALUES (?, ?, ?, NULL, ?)
+        INSERT INTO messages(sender_id, recipient_id, body, post_id, created_at, seen)
+        VALUES (?, ?, ?, NULL, ?, 0)
         """,
         (user["id"], peer_id, body, now_iso()),
     )

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "bits.html" import own_post %}
 {% block title %}{{ profile.username }} · 星露谷问答社{% endblock %}
 {% block content %}
 <section class="card">
@@ -16,7 +17,7 @@
   <h2>帖子</h2>
   <ul class="list">
     {% for p in posts %}
-    <li><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at }}</span></li>
+    <li {% if user and user.id == profile.id %}{{ own_post(p.id, "/u/" ~ ("%04d"|format(profile.id))) }}{% endif %}><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at }}</span></li>
     {% else %}
     <li>还没有发过帖。</li>
     {% endfor %}

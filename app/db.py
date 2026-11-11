@@ -132,6 +132,16 @@ def init_db() -> None:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS notice_reads (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            read_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS like_reads (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            read_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS ask_feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             question TEXT NOT NULL,
@@ -170,5 +180,8 @@ def init_db() -> None:
         conn.execute("ALTER TABLE comments ADD COLUMN user_id INTEGER")
     if "parent_id" not in comment_cols:
         conn.execute("ALTER TABLE comments ADD COLUMN parent_id INTEGER")
+    message_cols = [row[1] for row in conn.execute("PRAGMA table_info(messages)")]
+    if "seen" not in message_cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN seen INTEGER NOT NULL DEFAULT 1")
     conn.commit()
     conn.close()

@@ -4,7 +4,19 @@
 {% block content %}
 <section class="card chat-layout">
   <aside class="chat-list">
-    <h1>聊天</h1>
+    <div class="chat-list-head">
+      <h1>聊天</h1>
+      <div class="chat-tools">
+        <a class="msg-entry{% if likes_unread %} unread{% endif %}" href="/likes?next={{ path }}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 4.6-7 9-7 9z"></path></svg>
+          <span>点赞</span>
+        </a>
+        <a class="msg-entry{% if unread %} unread{% endif %}" href="/notices?next={{ path }}">
+          <svg viewBox="0 0 24 20" aria-hidden="true"><path d="M2 2h20v12H8l-4 4v-4H2Z"></path></svg>
+          <span>消息</span>
+        </a>
+      </div>
+    </div>
     {% for t in threads %}
     <a class="chat-peer {% if peer and peer.id == t.peer_id %}on{% endif %}" href="/chat/{{ t.peer_id }}">
       <span class="avatar">{{ avatar_emoji(t.peer_avatar) }}</span>
@@ -12,6 +24,7 @@
         <strong>{{ t.peer_name }}</strong>
         <small class="muted">{{ t.body }}</small>
       </span>
+      {% if t.unread %}<span class="unread-dot" aria-label="未读"></span>{% endif %}
     </a>
     {% else %}
     <p class="muted">还没有私聊。去论坛点头像，进主页后再点私聊。</p>
@@ -28,9 +41,9 @@
       <div class="bubble {% if m.sender_id == user.id %}mine{% endif %}">
         <p>{{ m.body }}</p>
         {% if m.post_id %}
-        <a href="/forum/{{ m.post_id }}">{{ m.post_title or '查看帖子' }}</a>
+        <a href="/forum/{{ m.post_id }}?back={{ ('/chat/' ~ peer.id)|urlencode }}">{{ m.post_title or '查看帖子' }}</a>
         {% endif %}
-        <span class="muted">{{ m.created_at }}</span>
+        <span class="muted">{{ m.created_at | forum_when }}</span>
       </div>
       {% else %}
       <p class="muted">打个招呼吧。</p>

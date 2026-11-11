@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ heading|default('消息') }} · 星露谷问答社{% endblock %}
+{% block body_class %}notice-page{% endblock %}
+{% block content %}
+<section class="card notice-sheet">
+  <div class="notice-bar">
+    <a class="notice-back" href="{{ back }}" aria-label="返回">&lt;</a>
+    <h1>{{ heading|default('消息') }}</h1>
+    <span></span>
+  </div>
+  <div class="notice-list">
+    {% for item in items %}
+    <a class="notice-item" href="/forum/{{ item.post_id }}?back={{ ((list_path|default('/notices')) ~ '?next=' ~ back)|urlencode }}{% if item.thread %}&thread={{ item.thread }}{% endif %}">
+      <span class="notice-main">
+        <span class="avatar">{{ avatar_emoji(item.avatar) }}</span>
+        <span class="notice-body">
+          <span class="notice-name">{{ item.name }}</span>
+          <span class="notice-line">{{ item.line }}</span>
+          <span class="notice-time muted">{{ item.created_at | forum_when }}</span>
+        </span>
+      </span>
+      <span class="notice-title">{{ item.title }}</span>
+    </a>
+    {% else %}
+    <p class="muted">{{ empty|default('还没有消息。') }}</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

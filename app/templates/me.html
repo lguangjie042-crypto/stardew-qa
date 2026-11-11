@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "bits.html" import own_mine, own_save %}
 {% block title %}我的 · 星露谷问答社{% endblock %}
 {% block content %}
 {% if user %}
@@ -30,11 +31,13 @@
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
 </section>
+<script id="share-peers" type="application/json">{{ share_peers | tojson }}</script>
 <section class="card">
   <h2>收藏</h2>
+  {% if removed or deleted %}<p class="toast" id="done-toast">{% if deleted %}删除成功{% else %}去除成功{% endif %}</p>{% endif %}
   <ul class="list">
     {% for p in favorites %}
-    <li><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at }}</span></li>
+    <li {{ own_save(p.id) }}><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at | forum_when }}</span></li>
     {% else %}
     <li>还没有收藏。在论坛帖子右边点五角星。</li>
     {% endfor %}
@@ -47,12 +50,26 @@
   </div>
   <ul class="list">
     {% for p in posts %}
-    <li><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at }}</span></li>
+    <li {{ own_mine(p.id) }}><a href="/forum/{{ p.id }}">{{ p.title }}</a><span class="muted">{{ p.created_at | forum_when }}</span></li>
     {% else %}
     <li>还没有发过帖。</li>
     {% endfor %}
   </ul>
 </section>
+{% if removed or deleted %}
+<script>
+setTimeout(function () {
+  var el = document.getElementById("done-toast");
+  if (el) el.remove();
+}, 1500);
+if (location.search.indexOf("removed=") >= 0 || location.search.indexOf("deleted=") >= 0) {
+  var url = new URL(location.href);
+  url.searchParams.delete("removed");
+  url.searchParams.delete("deleted");
+  history.replaceState(null, "", url.pathname + (url.search || "") + url.hash);
+}
+</script>
+{% endif %}
 {% else %}
 <section class="card">
   <h1>登录或注册</h1>

@@ -130,6 +130,73 @@ found = client_a.get("/forum", params={"author": a_name})
 assert "楼层测试帖" in found.text
 missing = client_a.get("/forum", params={"author": "不存在的人xyz"})
 assert "楼层测试帖" not in missing.text
+
+leaf = conn.execute(
+    "SELECT id FROM comments WHERE post_id=? AND body=?",
+    (post_id, "楼层另一条一级"),
+).fetchone()
+own_reply = conn.execute(
+    "SELECT id FROM comments WHERE post_id=? AND user_id=?",
+    (post_id, user_a["id"]),
+).fetchone()
+page_a = client_a.get(f"/forum/{post_id}")
+page_b = client_b.get(f"/forum/{post_id}")
+assert f'data-url="/forum/{post_id}/delete"' in page_a.text
+assert f'data-url="/forum/{post_id}/delete"' not in page_b.text
+assert "删除帖子" not in page_a.text
+assert f"/comments/{own_reply['id']}/delete" in page_a.text
+assert f"/comments/{leaf['id']}/delete" not in page_a.text
+assert f"/comments/{leaf['id']}/delete" in page_b.text
+assert 'data-own="post"' in client_a.get("/forum").text
+denied_post = client_b.post(f"/forum/{post_id}/delete", follow_redirects=False)
+assert denied_post.status_code == 303
+assert denied_post.headers["location"].endswith(f"/forum/{post_id}")
+denied_comment = client_a.post(
+    f"/forum/{post_id}/comments/{leaf['id']}/delete",
+    follow_redirects=False,
+)
+assert denied_comment.status_code == 303
+assert "楼层另一条一级" in client_a.get(f"/forum/{post_id}").text
+removed_leaf = client_b.post(
+    f"/forum/{post_id}/comments/{leaf['id']}/delete",
+    follow_redirects=True,
+)
+assert "楼层另一条一级" not in removed_leaf.text
+assert "楼层二级" in removed_leaf.text
+me_before = client_b.get("/me")
+assert f'data-url="/forum/{post_id}/unsave"' in me_before.text
+unsaved = client_b.post(f"/forum/{post_id}/unsave", follow_redirects=True)
+assert "去除成功" in unsaved.text
+assert f'data-url="/forum/{post_id}/unsave"' not in unsaved.text
+conn.execute("UPDATE users SET role='admin' WHERE id=?", (user_b["id"],))
+conn.commit()
+try:
+    admin_page = client_b.get("/forum")
+    assert "删除帖子" in admin_page.text
+    extra = client_a.post(
+        "/forum/new",
+        data={"title": "管理员仍可删", "body": "给管理员删"},
+        follow_redirects=False,
+    )
+    extra_id = int(extra.headers["location"].rsplit("/", 1)[-1])
+    killed = client_b.post(f"/forum/{extra_id}/delete", follow_redirects=False)
+    assert killed.status_code == 303
+    assert killed.headers["location"].endswith("/forum")
+    assert client_a.get(f"/forum/{extra_id}").status_code == 404
+finally:
+    conn.execute("UPDATE users SET role='user' WHERE id=?", (user_b["id"],))
+    conn.commit()
+assert "删除帖子" not in client_b.get("/forum").text
+still_denied = client_b.post(f"/forum/{post_id}/delete", follow_redirects=False)
+assert still_denied.headers["location"].endswith(f"/forum/{post_id}")
+owned = client_a.post(
+    f"/forum/{post_id}/delete",
+    data={"next": "/me"},
+    follow_redirects=False,
+)
+assert owned.status_code == 303
+assert owned.headers["location"].endswith("/me")
+assert client_b.get(f"/forum/{post_id}").status_code == 404
 conn.close()
 print("social-ok", post_id)
 
