@@ -5,13 +5,14 @@
 <section class="row">
   <h1 class="plaque"><span class="hello">欢迎来到</span><span class="forum-name"><span class="hop">论</span><span class="hop later">坛</span></span></h1>
   <div class="actions">
-    <details class="find" {% if date or author %}open{% endif %}>
+    <details class="find" {% if date or author or content %}open{% endif %}>
       <summary class="btn">查找</summary>
       <form class="find-form" action="/forum" method="get">
         <label>发布日期 <input type="date" name="date" value="{{ date }}"></label>
         <label>发布者 <input name="author" value="{{ author }}" placeholder="用户名" maxlength="32"></label>
+        <label>内容 <input name="content" value="{{ content }}" placeholder="标题或正文里的字" maxlength="80"></label>
         <button class="btn gold" type="submit">筛选</button>
-        {% if date or author %}<a class="btn" href="/forum">清除</a>{% endif %}
+        {% if date or author or content %}<a class="btn find-clear" href="/forum">清除</a>{% endif %}
       </form>
     </details>
     {% if user %}
